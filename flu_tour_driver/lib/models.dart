@@ -47,8 +47,10 @@ enum VehicleType { felucca, horseCarriage }
 extension VehicleTypeX on VehicleType {
   String get label => this == VehicleType.felucca ? 'Felucca' : 'Horse Carriage';
   String get value => this == VehicleType.felucca ? 'felucca' : 'horse_carriage';
-  static VehicleType fromString(String s) =>
-      s == 'felucca' ? VehicleType.felucca : VehicleType.horseCarriage;
+  static VehicleType fromString(String s) {
+    final v = s.toLowerCase().replaceAll(' ', '_');
+    return v == 'felucca' ? VehicleType.felucca : VehicleType.horseCarriage;
+  }
 }
 
 enum PaymentMethod { cash, creditCard, mobileWallet }

@@ -1,35 +1,42 @@
 {
   "project_info": {
-    "project_number": "1032687895242",
-    "firebase_url": "https://flutour-dev-default-rtdb.europe-west1.firebasedatabase.app",
-    "project_id": "flutour-dev",
-    "storage_bucket": "flutour-dev.firebasestorage.app"
+    "project_number": "258397191065",
+    "firebase_url": "https://flutour-3fc69-default-rtdb.firebaseio.com",
+    "project_id": "flutour-3fc69",
+    "storage_bucket": "flutour-3fc69.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1032687895242:android:aa805c8928853d8eabaa33",
+        "mobilesdk_app_id": "1:258397191065:android:e89a49a71a51e35d2a7108",
         "android_client_info": {
-          "package_name": "com.flutour.driver"
+          "package_name": "com.flutour.admin"
         }
       },
       "oauth_client": [
         {
-          "client_id": "1032687895242-aptr9v1dpbk3leibdfo8fo8cous766ga.apps.googleusercontent.com",
+          "client_id": "258397191065-u3e7drp1o8eft55ekjhlquf033p5qica.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyBQQW7o6djL2SHOYAbbYLOOVSoc3dKi17U"
+          "current_key": "AIzaSyCqcvs9fmoSpv1PSdtAVyHgK54kGUPFC4I"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "1032687895242-aptr9v1dpbk3leibdfo8fo8cous766ga.apps.googleusercontent.com",
+              "client_id": "258397191065-u3e7drp1o8eft55ekjhlquf033p5qica.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "258397191065-6uhsaofgksn8jeata86nlmopkimp0niq.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.fluTourApk"
+              }
             }
           ]
         }
@@ -37,28 +44,71 @@
     },
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1032687895242:android:528226c645fff8e3abaa33",
+        "mobilesdk_app_id": "1:258397191065:android:648201ce64ac08342a7108",
         "android_client_info": {
-          "package_name": "com.flutour.passenger"
+          "package_name": "com.flutour.driver"
         }
       },
       "oauth_client": [
         {
-          "client_id": "1032687895242-aptr9v1dpbk3leibdfo8fo8cous766ga.apps.googleusercontent.com",
+          "client_id": "258397191065-u3e7drp1o8eft55ekjhlquf033p5qica.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyBQQW7o6djL2SHOYAbbYLOOVSoc3dKi17U"
+          "current_key": "AIzaSyCqcvs9fmoSpv1PSdtAVyHgK54kGUPFC4I"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "1032687895242-aptr9v1dpbk3leibdfo8fo8cous766ga.apps.googleusercontent.com",
+              "client_id": "258397191065-u3e7drp1o8eft55ekjhlquf033p5qica.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "258397191065-6uhsaofgksn8jeata86nlmopkimp0niq.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.fluTourApk"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:258397191065:android:5ae8b79f763662342a7108",
+        "android_client_info": {
+          "package_name": "com.flutour.passenger"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "258397191065-u3e7drp1o8eft55ekjhlquf033p5qica.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCqcvs9fmoSpv1PSdtAVyHgK54kGUPFC4I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "258397191065-u3e7drp1o8eft55ekjhlquf033p5qica.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "258397191065-6uhsaofgksn8jeata86nlmopkimp0niq.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.fluTourApk"
+              }
             }
           ]
         }

@@ -1,7 +1,5 @@
 // lib/location_service.dart — FluTour Admin App
-// Admin only needs to VIEW driver locations on the live map (read-only).
-// Driver locations are read from Firebase Realtime DB (stubbed for now).
-// TODO: Connect to FirebaseDatabase when account is recovered.
+// Admin reads live driver locations from Firebase Realtime DB (read-only).
 
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';

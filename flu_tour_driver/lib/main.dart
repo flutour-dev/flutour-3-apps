@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geolocator/geolocator.dart';
 import 'firebase_options.dart';
 import 'models.dart';
 import 'database_service.dart';
@@ -60,64 +61,45 @@ class FluTourDriverApp extends StatelessWidget {
 
 // ===== DRIVER AUTH SERVICE =====
 class DriverAuthService {
-  static bool _demoMode = false;
   static String _currentDriverName = '';
   static String _currentDriverPhone = '';
+  static String _currentVehicleType = '';
   static String _tempVehicleId = '';
   static String _tempVehicleType = '';
 
-  static bool get isLoggedIn =>
-      _demoMode || FirebaseAuth.instance.currentUser != null;
+  static bool get isLoggedIn => FirebaseAuth.instance.currentUser != null;
   static String get currentDriverId =>
       FirebaseAuth.instance.currentUser?.uid ?? '';
   static String get currentDriverName => _currentDriverName;
   static String get currentDriverPhone => _currentDriverPhone;
+  static String get currentVehicleType => _currentVehicleType;
 
   static Future<void> loadSession() async {
     final prefs = await SharedPreferences.getInstance();
-    _demoMode = prefs.getBool('driver_demo') ?? false;
     _currentDriverName = prefs.getString('driver_name') ?? '';
     _currentDriverPhone = prefs.getString('driver_phone') ?? '';
-    if (_demoMode && FirebaseAuth.instance.currentUser == null) {
-      try { await FirebaseAuth.instance.signInAnonymously(); } catch (_) {}
-    }
-    if (!_demoMode) {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null && _currentDriverName.isEmpty) {
-        try {
-          final doc = await FirebaseFirestore.instance
-              .collection('drivers').doc(user.uid).get();
-          _currentDriverName = doc.data()?['name'] ?? '';
-          _currentDriverPhone = doc.data()?['phone'] ?? '';
-          await prefs.setString('driver_name', _currentDriverName);
-          await prefs.setString('driver_phone', _currentDriverPhone);
-        } catch (_) {}
-      }
+    final rawType = prefs.getString('driver_vehicle_type') ?? '';
+    // Always normalize — old registrations stored 'Felucca'/'Horse Carriage', new ones store 'felucca'/'horse_carriage'
+    _currentVehicleType = rawType.isEmpty ? '' : VehicleTypeX.fromString(rawType).value;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && (_currentDriverName.isEmpty || _currentVehicleType.isEmpty)) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('drivers').doc(user.uid).get();
+        _currentDriverName = doc.data()?['name'] ?? '';
+        _currentDriverPhone = doc.data()?['phone'] ?? '';
+        _currentVehicleType = VehicleTypeX.fromString(doc.data()?['vehicleType'] ?? '').value;
+        await prefs.setString('driver_name', _currentDriverName);
+        await prefs.setString('driver_phone', _currentDriverPhone);
+        await prefs.setString('driver_vehicle_type', _currentVehicleType);
+      } catch (_) {}
     }
   }
 
   static String _phoneToEmail(String phone) =>
-      '${phone.replaceAll(RegExp(r'[^0-9]'), '')}@flutour.app';
+      'driver.${phone.replaceAll(RegExp(r'[^0-9]'), '')}@flutour.app';
 
   static Future<String?> signIn(String phone, String password) async {
-    // Demo mode — use phone 1111111111 / password demo123 to test UI
-    if (phone.replaceAll(RegExp(r'[^0-9]'), '') == '1111111111' &&
-        password == 'demo123') {
-      _demoMode = true;
-      _currentDriverName = 'Hassan Mahmoud';
-      _currentDriverPhone = phone.trim();
-      // Sign in anonymously so Firestore security rules work in demo mode
-      try {
-        if (FirebaseAuth.instance.currentUser == null) {
-          await FirebaseAuth.instance.signInAnonymously();
-        }
-      } catch (_) {}
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('driver_demo', true);
-      await prefs.setString('driver_name', _currentDriverName);
-      await prefs.setString('driver_phone', _currentDriverPhone);
-      return null;
-    }
     try {
       final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _phoneToEmail(phone), password: password);
@@ -138,16 +120,18 @@ class DriverAuthService {
       }
       _currentDriverPhone = phone.trim();
       _currentDriverName = doc.data()?['name'] ?? 'Driver';
+      _currentVehicleType = VehicleTypeX.fromString(doc.data()?['vehicleType'] ?? '').value;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('driver_name', _currentDriverName);
       await prefs.setString('driver_phone', _currentDriverPhone);
+      await prefs.setString('driver_vehicle_type', _currentVehicleType);
       return null;
     } on FirebaseAuthException catch (e) {
       if (e.code == 'user-not-found') return 'No account found for this phone number';
       if (e.code == 'wrong-password') return 'Incorrect password';
       return e.message ?? 'Sign in failed';
     } catch (_) {
-      return 'Service unavailable. Demo login: 1111111111 / demo123';
+      return 'Service unavailable. Please check your connection.';
     }
   }
 
@@ -160,8 +144,6 @@ class DriverAuthService {
     return null;
   }
 
-  // Call this after collecting the password on the register screen (if password is collected there).
-  // Creates Firebase Auth + Firestore driver doc with status='pending'.
   static Future<String?> completeRegistration(String password) async {
     if (password.length < 6) return 'Password must be at least 6 characters';
     try {
@@ -172,7 +154,7 @@ class DriverAuthService {
         'name': _currentDriverName,
         'phone': _currentDriverPhone,
         'vehicleId': _tempVehicleId,
-        'vehicleType': _tempVehicleType,
+        'vehicleType': VehicleTypeX.fromString(_tempVehicleType).value,
         'status': 'pending',
         'rating': 0.0,
         'totalTrips': 0,
@@ -182,86 +164,30 @@ class DriverAuthService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('driver_name', _currentDriverName);
       await prefs.setString('driver_phone', _currentDriverPhone);
+      await prefs.setString('driver_vehicle_type', _tempVehicleType);
       return null;
     } on FirebaseAuthException catch (e) {
       if (e.code == 'email-already-in-use') return 'Phone number already registered';
       return e.message ?? 'Registration failed';
+    } catch (e) {
+      return 'Registration failed. Please check your connection and try again.';
     }
   }
 
   static Future<void> signOut() async {
-    _demoMode = false;
     if (FirebaseAuth.instance.currentUser != null) {
       await FirebaseAuth.instance.signOut();
     }
     _currentDriverName = '';
     _currentDriverPhone = '';
+    _currentVehicleType = '';
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('driver_demo');
     await prefs.remove('driver_name');
     await prefs.remove('driver_phone');
+    await prefs.remove('driver_vehicle_type');
   }
 }
 
-// ===== MOCK DATA =====
-class DriverData {
-  static Map<String, dynamic> profile = {
-    'id': 'D001',
-    'name': 'Hassan Mahmoud',
-    'phone': '01011112222',
-    'type': 'Felucca',
-    'vehicle': 'F072',
-    'rating': 4.8,
-    'totalTrips': 45,
-    'isOnline': false,
-    'balance': 156.0,
-  };
-
-  static List<Map<String, dynamic>> incomingRequests = [];
-
-  static List<Map<String, dynamic>> tripHistory = [
-    {
-      'id': 'BK001',
-      'passenger': 'Nour Ali',
-      'pickup': 'Luxor Museum',
-      'dropoff': 'Luxor Temple',
-      'amount': 12.0,
-      'date': '2024-06-28',
-      'status': 'Completed',
-      'payment': 'Cash',
-    },
-    {
-      'id': 'BK002',
-      'passenger': 'Youssef Adel',
-      'pickup': 'Karnak Temple',
-      'dropoff': 'Winter Palace',
-      'amount': 12.0,
-      'date': '2024-06-27',
-      'status': 'Completed',
-      'payment': 'Mobile Wallet',
-    },
-    {
-      'id': 'BK003',
-      'passenger': 'Omar Khalid',
-      'pickup': 'Nile Corniche',
-      'dropoff': 'Luxor Museum',
-      'amount': 0.0,
-      'date': '2024-06-26',
-      'status': 'Cancelled',
-      'payment': '-',
-    },
-    {
-      'id': 'BK004',
-      'passenger': 'Fatma Samir',
-      'pickup': 'Luxor Airport',
-      'dropoff': 'Karnak Temple',
-      'amount': 12.0,
-      'date': '2024-06-25',
-      'status': 'Completed',
-      'payment': 'Credit Card',
-    },
-  ];
-}
 
 // ===== 1. SPLASH SCREEN =====
 class DriverSplashScreen extends StatefulWidget {
@@ -291,7 +217,6 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
     Timer(Duration(seconds: 3), () {
       if (!mounted) return;
       // Navigation guard: skip login if already authenticated
-      // TODO: Replace with FirebaseAuth.instance.currentUser != null
       if (DriverAuthService.isLoggedIn) {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (_) => DriverHomeScreen()));
@@ -431,7 +356,6 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
       return;
     }
     setState(() => _isLoading = true);
-    // TODO: FirebaseAuth will handle real credential verification
     final error = await DriverAuthService.signIn(
         _phoneController.text.trim(), _passwordController.text.trim());
     if (!mounted) return;
@@ -604,14 +528,20 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _vehicleController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   String _selectedType = 'Felucca';
   bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
 
   @override
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
     _vehicleController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -701,6 +631,50 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                 );
               }).toList(),
             ),
+            SizedBox(height: 16),
+            Text('Password',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            SizedBox(height: 8),
+            TextField(
+              controller: _passwordController,
+              obscureText: _obscurePassword,
+              decoration: InputDecoration(
+                hintText: 'Create a password (min 6 characters)',
+                prefixIcon: Icon(Icons.lock, color: Colors.teal.shade600),
+                suffixIcon: IconButton(
+                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility,
+                      color: Colors.grey),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.teal.shade600, width: 2),
+                ),
+              ),
+            ),
+            SizedBox(height: 16),
+            Text('Confirm Password',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            SizedBox(height: 8),
+            TextField(
+              controller: _confirmPasswordController,
+              obscureText: _obscureConfirm,
+              decoration: InputDecoration(
+                hintText: 'Re-enter your password',
+                prefixIcon: Icon(Icons.lock_outline, color: Colors.teal.shade600),
+                suffixIcon: IconButton(
+                  icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility,
+                      color: Colors.grey),
+                  onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: Colors.teal.shade600, width: 2),
+                ),
+              ),
+            ),
             SizedBox(height: 32),
             _isLoading
                 ? Center(child: CircularProgressIndicator())
@@ -709,21 +683,35 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                     height: 54,
                     child: ElevatedButton(
                       onPressed: () async {
-                        if (_nameController.text.trim().isEmpty ||
-                            _phoneController.text.trim().isEmpty ||
-                            _vehicleController.text.trim().isEmpty) {
+                        final name = _nameController.text.trim();
+                        final phone = _phoneController.text.trim();
+                        final vehicle = _vehicleController.text.trim();
+                        final password = _passwordController.text;
+                        final confirmPassword = _confirmPasswordController.text;
+                        if (name.isEmpty || phone.isEmpty || vehicle.isEmpty ||
+                            password.isEmpty || confirmPassword.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text('Please fill in all fields')),
                           );
                           return;
                         }
+                        if (password != confirmPassword) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Passwords do not match')),
+                          );
+                          return;
+                        }
                         setState(() => _isLoading = true);
-                        // TODO: FirebaseAuth creates account + Firestore stores driver with status='pending'
-                        final error = await DriverAuthService.register(
-                            _nameController.text.trim(),
-                            _phoneController.text.trim(),
-                            _vehicleController.text.trim(),
-                            _selectedType);
+                        final regError = await DriverAuthService.register(
+                            name, phone, vehicle, _selectedType);
+                        if (!mounted) return;
+                        if (regError != null) {
+                          setState(() => _isLoading = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(regError)));
+                          return;
+                        }
+                        final error = await DriverAuthService.completeRegistration(password);
                         if (!mounted) return;
                         setState(() => _isLoading = false);
                         if (error != null) {
@@ -733,7 +721,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                           Navigator.pushAndRemoveUntil(
                               context,
                               MaterialPageRoute(builder: (_) => DriverPendingApprovalScreen(
-                                  name: _nameController.text.trim())),
+                                  name: name)),
                               (_) => false);
                         }
                       },
@@ -923,6 +911,16 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
   bool _togglingOnline = false;
   final LatLng _luxor = LatLng(25.6872, 32.6396);
   StreamSubscription<RemoteMessage>? _fcmSub;
+  late Future<Map<String, dynamic>> _statsFuture;
+
+  Future<Map<String, dynamic>> _loadStats() async {
+    final uid = DriverAuthService.currentDriverId;
+    final results = await Future.wait([
+      DriverDatabaseService.instance.getEarningsSummary(uid),
+      DriverDatabaseService.instance.getDriverProfile(uid),
+    ]);
+    return {'summary': results[0], 'profile': results[1]};
+  }
 
   Stream<List<Map<String, dynamic>>> get _requestsStream =>
       FirebaseFirestore.instance
@@ -936,9 +934,10 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                   'passenger': data['passengerName'] ?? 'Passenger',
                   'pickup': data['pickup'] ?? '',
                   'dropoff': data['dropoff'] ?? '',
+                  'vehicleType': data['vehicleType'] ?? '',
                   'distance': '—',
                   'duration': '—',
-                  'amount': (data['fare'] as num?)?.toDouble() ?? 12.0,
+                  'amount': (data['fare'] as num?)?.toDouble() ?? 0.0,
                   'payment': data['paymentMethod'] ?? 'cash',
                   'time': 'Just now',
                 };
@@ -947,6 +946,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
   @override
   void initState() {
     super.initState();
+    _statsFuture = _loadStats();
     // Show a SnackBar when a trip-request FCM notification arrives in the foreground
     _fcmSub = FirebaseMessaging.onMessage.listen((message) {
       if (!mounted) return;
@@ -985,10 +985,15 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
         actions: [
           IconButton(
             icon: Icon(Icons.logout, color: Colors.red.shade400),
-            onPressed: () => Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => DriverLoginScreen()),
-            ),
+            onPressed: () async {
+              await DriverAuthService.signOut();
+              if (context.mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => DriverLoginScreen()),
+                );
+              }
+            },
           ),
         ],
       ),
@@ -1008,17 +1013,21 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                         DriverAuthService.currentDriverId, false);
                   } catch (_) {}
                 } else {
-                  // Going online: check GPS first
-                  setState(() => _togglingOnline = true);
+                  // Go online immediately — don't block on GPS
+                  setState(() {
+                    _isOnline = true;
+                    _togglingOnline = false;
+                  });
+                  try {
+                    await DriverDatabaseService.instance.setOnlineStatus(
+                        DriverAuthService.currentDriverId, true);
+                  } catch (_) {}
+                  // Try to start GPS broadcasting in the background (optional)
                   final result = await DriverLocationService.getCurrentLocation();
                   if (!mounted) return;
                   if (result.isSuccess) {
                     DriverLocationService.startBroadcasting(
                         DriverAuthService.currentDriverId);
-                    setState(() {
-                      _isOnline = true;
-                      _togglingOnline = false;
-                    });
                     try {
                       await DriverDatabaseService.instance.setOnlineStatus(
                         DriverAuthService.currentDriverId, true,
@@ -1026,20 +1035,12 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                         longitude: result.position!.longitude,
                       );
                     } catch (_) {}
-                    // Optionally warn about background permission
                     final hasBg = await DriverLocationService.hasBackgroundPermission();
                     if (!hasBg && mounted) {
                       DriverLocationService.showBackgroundPermissionDialog(context);
                     }
-                  } else {
-                    setState(() => _togglingOnline = false);
-                    if (result.errorMessage!.contains('permanently')) {
-                      DriverLocationService.showPermissionDeniedDialog(context);
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(result.errorMessage!)));
-                    }
                   }
+                  // GPS failure: driver stays online, just no location broadcasting
                 }
               },
               child: AnimatedContainer(
@@ -1100,20 +1101,32 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                       style: TextStyle(
                           fontSize: 17, fontWeight: FontWeight.bold)),
                   SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                          child: _buildStatCard('Trips Today', '3',
-                              Icons.directions_boat, Colors.blue)),
-                      SizedBox(width: 12),
-                      Expanded(
-                          child: _buildStatCard('Earned Today', '\$36',
-                              Icons.attach_money, Colors.teal)),
-                      SizedBox(width: 12),
-                      Expanded(
-                          child: _buildStatCard('Rating', '4.8 ★',
-                              Icons.star, Colors.orange)),
-                    ],
+                  FutureBuilder<Map<String, dynamic>>(
+                    future: _statsFuture,
+                    builder: (context, snap) {
+                      final summary = snap.data?['summary'] as EarningsSummary?;
+                      final profile = snap.data?['profile'] as DriverModel?;
+                      final tripsToday = summary?.tripsToday ?? 0;
+                      final earnedToday = summary?.today ?? 0.0;
+                      final rating = profile?.rating ?? 0.0;
+                      return Row(
+                        children: [
+                          Expanded(
+                              child: _buildStatCard('Trips Today', '$tripsToday',
+                                  Icons.directions_boat, Colors.blue)),
+                          SizedBox(width: 12),
+                          Expanded(
+                              child: _buildStatCard('Earned Today',
+                                  'EGP ${earnedToday.toStringAsFixed(0)}',
+                                  Icons.account_balance_wallet, Colors.teal)),
+                          SizedBox(width: 12),
+                          Expanded(
+                              child: _buildStatCard('Rating',
+                                  '${rating.toStringAsFixed(1)} ★',
+                                  Icons.star, Colors.orange)),
+                        ],
+                      );
+                    },
                   ),
                   SizedBox(height: 24),
 
@@ -1304,7 +1317,11 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () {},
+                  onPressed: () async {
+                    try {
+                      await DriverDatabaseService.instance.declineTrip(req['id']);
+                    } catch (_) {}
+                  },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.red,
                     side: BorderSide(color: Colors.red),
@@ -1381,12 +1398,21 @@ class RideRequestsTab extends StatefulWidget {
 }
 
 class _RideRequestsTabState extends State<RideRequestsTab> {
-  Stream<List<Map<String, dynamic>>> _requestsStream() {
-    return FirebaseFirestore.instance
+  late final Stream<List<Map<String, dynamic>>> _stream;
+  String? _streamError;
+  final Set<String> _acceptingIds = {};
+  final Set<String> _declinedIds = {}; // trips declined by this driver (hidden locally)
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = FirebaseFirestore.instance
         .collection('trips')
         .where('status', isEqualTo: 'requested')
         .snapshots()
-        .handleError((e) => print('Firestore stream error: $e'))
+        .handleError((e) {
+          if (mounted) setState(() => _streamError = e.toString());
+        })
         .map((snap) => snap.docs.map((d) {
               final data = d.data();
               return {
@@ -1394,6 +1420,7 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                 'passenger': data['passengerName'] ?? 'Passenger',
                 'pickup': data['pickup'] ?? '',
                 'dropoff': data['dropoff'] ?? '',
+                'vehicleType': data['vehicleType'] ?? '',
                 'distance': '—',
                 'duration': '—',
                 'amount': (data['fare'] as num?)?.toDouble() ?? 0.0,
@@ -1408,12 +1435,32 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
     return Scaffold(
       appBar: AppBar(title: Text('Ride Requests'), centerTitle: true),
       body: StreamBuilder<List<Map<String, dynamic>>>(
-        stream: _requestsStream(),
+        stream: _stream,
         builder: (context, snapshot) {
+          if (_streamError != null) {
+            return Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
+                    SizedBox(height: 12),
+                    Text('Could not load requests',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    SizedBox(height: 8),
+                    Text(_streamError!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                  ],
+                ),
+              ),
+            );
+          }
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Center(child: CircularProgressIndicator());
           }
-          final requests = snapshot.data ?? [];
+          final requests = (snapshot.data ?? [])
+              .where((r) => !_declinedIds.contains(r['id'] as String))
+              .toList();
           if (requests.isEmpty) {
             return Center(
               child: Column(
@@ -1423,6 +1470,9 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                   SizedBox(height: 16),
                   Text('No ride requests right now',
                       style: TextStyle(color: Colors.grey.shade500)),
+                  SizedBox(height: 8),
+                  Text('Vehicle type: ${DriverAuthService.currentVehicleType}',
+                      style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
                 ],
               ),
             );
@@ -1469,13 +1519,14 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                     Text(req['passenger'],
                         style: TextStyle(
                             fontWeight: FontWeight.bold, fontSize: 16)),
-                    Text('Trip: ${(req['id'] as String).substring(0, 8)}… · DriverUID: ${DriverAuthService.currentDriverId.isEmpty ? "NOT LOGGED IN" : DriverAuthService.currentDriverId.substring(0, 6)}…',
+                    Text(
+                        '${req['vehicleType'] == 'felucca' ? 'Felucca' : 'Horse Carriage'} · ${req['payment']}',
                         style: TextStyle(
                             color: Colors.grey.shade500, fontSize: 11)),
                   ],
                 ),
               ),
-              Text('\$${req['amount'].toStringAsFixed(0)}',
+              Text('${req['amount'].toStringAsFixed(0)} EGP',
                   style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -1521,8 +1572,9 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () async {
-                    await DriverDatabaseService.instance.declineTrip(req['id']);
+                  onPressed: () {
+                    // Hide this trip from this driver's list (stays visible to other drivers)
+                    setState(() => _declinedIds.add(req['id'] as String));
                   },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.red,
@@ -1537,44 +1589,55 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
               SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () async {
-                    try {
-                      await DriverDatabaseService.instance.acceptTrip(
-                        req['id'],
-                        DriverAuthService.currentDriverId,
-                        DriverAuthService.currentDriverName,
-                      );
-                      if (context.mounted) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ActiveRideScreen(request: req),
-                          ),
-                        );
-                      }
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Accept failed: $e'),
-                            duration: Duration(seconds: 10),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    }
-                  },
+                  onPressed: _acceptingIds.contains(req['id'] as String)
+                      ? null
+                      : () async {
+                          final tripId = req['id'] as String;
+                          setState(() => _acceptingIds.add(tripId));
+                          try {
+                            await DriverDatabaseService.instance.acceptTrip(
+                              tripId,
+                              DriverAuthService.currentDriverId,
+                              DriverAuthService.currentDriverName,
+                            );
+                            if (context.mounted) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ActiveRideScreen(request: req),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) setState(() => _acceptingIds.remove(tripId));
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Accept failed: $e'),
+                                  duration: Duration(seconds: 10),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
+                        },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.teal.shade700,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
                     padding: EdgeInsets.symmetric(vertical: 12),
                   ),
-                  child: Text('Accept',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold)),
+                  child: _acceptingIds.contains(req['id'] as String)
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2))
+                      : Text('Accept',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -1641,6 +1704,38 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
   ];
 
   final LatLng _luxor = LatLng(25.6872, 32.6396);
+  LatLng? _driverPos;
+  StreamSubscription<Position>? _posStream;
+  final MapController _mapCtrl = MapController();
+
+  @override
+  void initState() {
+    super.initState();
+    _startTracking();
+  }
+
+  void _startTracking() async {
+    final perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied ||
+        perm == LocationPermission.deniedForever) return;
+    _posStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      ),
+    ).listen((pos) {
+      if (!mounted) return;
+      final loc = LatLng(pos.latitude, pos.longitude);
+      setState(() => _driverPos = loc);
+      _mapCtrl.move(loc, 15.5);
+    });
+  }
+
+  @override
+  void dispose() {
+    _posStream?.cancel();
+    super.dispose();
+  }
 
   Future<void> _nextStep() async {
     final tripId = widget.request['id'] as String? ?? '';
@@ -1661,22 +1756,60 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
         // In Progress → Complete: finish the trip
         if (tripId.isNotEmpty) {
           await DriverDatabaseService.instance.completeTrip(
-              tripId, (widget.request['amount'] as num?)?.toDouble() ?? 12.0);
+              tripId,
+              (widget.request['amount'] as num?)?.toDouble() ?? 0.0,
+              DriverAuthService.currentDriverId);
         }
         setState(() => _step = 3);
       } else {
-        // Step 3 confirmation screen — go back to requests
-        DriverData.tripHistory.insert(0, {
-          'id': widget.request['id'],
-          'passenger': widget.request['passenger'],
-          'pickup': widget.request['pickup'],
-          'dropoff': widget.request['dropoff'],
-          'amount': widget.request['amount'],
-          'date': DateTime.now().toString().substring(0, 10),
-          'status': 'Completed',
-          'payment': widget.request['payment'],
-        });
-        Navigator.pop(context);
+        // Step 3: show earnings and go back to dashboard
+        if (!mounted) return;
+        final fare = (widget.request['amount'] as num?)?.toDouble() ?? 0.0;
+        final earning = fare * 0.85;
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => AlertDialog(
+            title: Row(children: [
+              Icon(Icons.check_circle, color: Colors.green),
+              SizedBox(width: 8),
+              Text('Trip Complete!'),
+            ]),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Earnings for this trip:',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                SizedBox(height: 10),
+                Text('${fare.toStringAsFixed(0)} EGP',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 28,
+                        color: Colors.teal.shade700)),
+                SizedBox(height: 4),
+                Text('Your share (85%): ${earning.toStringAsFixed(0)} EGP',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+              ],
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context); // close dialog
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (_) => DriverHomeScreen()),
+                    (_) => false,
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal.shade700),
+                child: Text('Back to Dashboard',
+                    style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -1746,9 +1879,10 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
           // Map
           Expanded(
             child: FlutterMap(
+              mapController: _mapCtrl,
               options: MapOptions(
-                initialCenter: _luxor,
-                initialZoom: 14.5,
+                initialCenter: _driverPos ?? _luxor,
+                initialZoom: 15.5,
               ),
               children: [
                 TileLayer(
@@ -1760,7 +1894,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                     Marker(
                       width: 44,
                       height: 44,
-                      point: _luxor,
+                      point: _driverPos ?? _luxor,
                       child: Container(
                         decoration: BoxDecoration(
                           color: Colors.teal.shade700,
@@ -1826,7 +1960,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                       ),
                     ),
                     Text(
-                        '\$${widget.request['amount'].toStringAsFixed(0)}',
+                        '${widget.request['amount'].toStringAsFixed(0)} EGP',
                         style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -1871,24 +2005,67 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
 }
 
 // ===== 8. TRIP HISTORY TAB =====
-class TripHistoryTab extends StatelessWidget {
+class TripHistoryTab extends StatefulWidget {
+  @override
+  _TripHistoryTabState createState() => _TripHistoryTabState();
+}
+
+class _TripHistoryTabState extends State<TripHistoryTab> {
+  late Future<List<TripModel>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = DriverDatabaseService.instance
+        .getTripHistory(DriverAuthService.currentDriverId);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Trip History'), centerTitle: true),
-      body: DriverData.tripHistory.isEmpty
-          ? Center(child: Text('No trips yet'))
-          : ListView.builder(
-              padding: EdgeInsets.all(16),
-              itemCount: DriverData.tripHistory.length,
-              itemBuilder: (context, i) =>
-                  _buildHistoryCard(DriverData.tripHistory[i]),
-            ),
+      body: FutureBuilder<List<TripModel>>(
+        future: _future,
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
+                  SizedBox(height: 12),
+                  Text('Could not load trip history',
+                      style: TextStyle(color: Colors.grey.shade600)),
+                  SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => setState(() => _future =
+                        DriverDatabaseService.instance
+                            .getTripHistory(DriverAuthService.currentDriverId)),
+                    child: Text('Retry'),
+                  ),
+                ],
+              ),
+            );
+          }
+          final trips = snap.data ?? [];
+          if (trips.isEmpty) {
+            return Center(child: Text('No trips yet'));
+          }
+          return ListView.builder(
+            padding: EdgeInsets.all(16),
+            itemCount: trips.length,
+            itemBuilder: (context, i) => _buildHistoryCard(trips[i]),
+          );
+        },
+      ),
     );
   }
 
-  Widget _buildHistoryCard(Map<String, dynamic> trip) {
-    final bool isCompleted = trip['status'] == 'Completed';
+  Widget _buildHistoryCard(TripModel trip) {
+    final bool isCompleted = trip.status == TripStatus.completed;
     return Container(
       margin: EdgeInsets.only(bottom: 12),
       padding: EdgeInsets.all(16),
@@ -1896,8 +2073,7 @@ class TripHistoryTab extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
-          BoxShadow(
-              color: Colors.black12, blurRadius: 8, offset: Offset(0, 3)),
+          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3)),
         ],
       ),
       child: Row(
@@ -1905,16 +2081,12 @@ class TripHistoryTab extends StatelessWidget {
           Container(
             padding: EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: isCompleted
-                  ? Colors.teal.shade50
-                  : Colors.red.shade50,
+              color: isCompleted ? Colors.teal.shade50 : Colors.red.shade50,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               isCompleted ? Icons.check_circle : Icons.cancel,
-              color: isCompleted
-                  ? Colors.teal.shade600
-                  : Colors.red.shade400,
+              color: isCompleted ? Colors.teal.shade600 : Colors.red.shade400,
               size: 28,
             ),
           ),
@@ -1923,18 +2095,16 @@ class TripHistoryTab extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(trip['passenger'],
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 15)),
+                Text(trip.passengerName,
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 SizedBox(height: 3),
-                Text('${trip['pickup']} → ${trip['dropoff']}',
-                    style: TextStyle(
-                        color: Colors.grey.shade600, fontSize: 12),
+                Text('${trip.pickup} → ${trip.dropoff}',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                     overflow: TextOverflow.ellipsis),
                 SizedBox(height: 3),
-                Text('${trip['date']} · ${trip['payment']}',
-                    style: TextStyle(
-                        color: Colors.grey.shade500, fontSize: 11)),
+                Text(
+                    '${trip.createdAt.toString().substring(0, 10)} · ${trip.paymentMethod.label}',
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
               ],
             ),
           ),
@@ -1942,27 +2112,20 @@ class TripHistoryTab extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                isCompleted
-                    ? '\$${trip['amount'].toStringAsFixed(0)}'
-                    : '-',
+                isCompleted ? 'EGP ${trip.fare.toStringAsFixed(0)}' : '-',
                 style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: isCompleted
-                        ? Colors.teal.shade700
-                        : Colors.grey),
+                    color: isCompleted ? Colors.teal.shade700 : Colors.grey),
               ),
               SizedBox(height: 4),
               Container(
-                padding:
-                    EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: isCompleted
-                      ? Colors.green.shade50
-                      : Colors.red.shade50,
+                  color: isCompleted ? Colors.green.shade50 : Colors.red.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(trip['status'],
+                child: Text(trip.status.label,
                     style: TextStyle(
                         fontSize: 11,
                         color: isCompleted ? Colors.green : Colors.red,
@@ -1977,154 +2140,168 @@ class TripHistoryTab extends StatelessWidget {
 }
 
 // ===== 9. EARNINGS TAB =====
-class DriverEarningsTab extends StatelessWidget {
-  double get _totalEarned => DriverData.tripHistory
-      .where((t) => t['status'] == 'Completed')
-      .fold(0.0, (sum, t) => sum + (t['amount'] as double));
+class DriverEarningsTab extends StatefulWidget {
+  @override
+  _DriverEarningsTabState createState() => _DriverEarningsTabState();
+}
 
-  int get _completedTrips =>
-      DriverData.tripHistory.where((t) => t['status'] == 'Completed').length;
+class _DriverEarningsTabState extends State<DriverEarningsTab> {
+  late Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadData();
+  }
+
+  Future<Map<String, dynamic>> _loadData() async {
+    final uid = DriverAuthService.currentDriverId;
+    final results = await Future.wait([
+      DriverDatabaseService.instance.getEarningsSummary(uid),
+      DriverDatabaseService.instance.getDriverProfile(uid),
+    ]);
+    return {'summary': results[0], 'profile': results[1]};
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Earnings'), centerTitle: true),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Total balance card
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.teal.shade700, Colors.teal.shade400],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.teal.withOpacity(0.3),
-                    blurRadius: 16,
-                    offset: Offset(0, 6),
+      body: FutureBuilder<Map<String, dynamic>>(
+        future: _future,
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
+                  SizedBox(height: 12),
+                  Text('Could not load earnings',
+                      style: TextStyle(color: Colors.grey.shade600)),
+                  SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () =>
+                        setState(() => _future = _loadData()),
+                    child: Text('Retry'),
                   ),
                 ],
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Total Balance',
-                      style:
-                          TextStyle(color: Colors.white70, fontSize: 14)),
-                  SizedBox(height: 8),
-                  Text('\$${DriverData.profile['balance'].toStringAsFixed(2)}',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 42,
-                          fontWeight: FontWeight.bold)),
-                  SizedBox(height: 16),
-                  Row(
-                    children: [
-                      _balanceStat('Total Trips',
-                          '${DriverData.profile['totalTrips']}'),
-                      SizedBox(width: 24),
-                      _balanceStat('Rating',
-                          '${DriverData.profile['rating']} ★'),
-                      SizedBox(width: 24),
-                      _balanceStat('Vehicle',
-                          '${DriverData.profile['vehicle']}'),
+            );
+          }
+          final summary = snap.data?['summary'] as EarningsSummary? ??
+              EarningsSummary(today: 0, thisWeek: 0, thisMonth: 0, tripsToday: 0, tripsThisWeek: 0);
+          final profile = snap.data?['profile'] as DriverModel?;
+
+          return SingleChildScrollView(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.teal.shade700, Colors.teal.shade400],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.teal.withOpacity(0.3),
+                        blurRadius: 16,
+                        offset: Offset(0, 6),
+                      ),
                     ],
                   ),
-                ],
-              ),
-            ),
-            SizedBox(height: 24),
-
-            // This session stats
-            Text('This Session',
-                style:
-                    TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-            SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildStatBox('Completed\nTrips',
-                      '$_completedTrips', Colors.teal),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('This Month',
+                          style: TextStyle(color: Colors.white70, fontSize: 14)),
+                      SizedBox(height: 8),
+                      Text('EGP ${summary.thisMonth.toStringAsFixed(0)}',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 42,
+                              fontWeight: FontWeight.bold)),
+                      SizedBox(height: 16),
+                      Row(
+                        children: [
+                          _balanceStat('Total Trips', '${profile?.totalTrips ?? 0}'),
+                          SizedBox(width: 24),
+                          _balanceStat('Rating', '${(profile?.rating ?? 0.0).toStringAsFixed(1)} ★'),
+                          SizedBox(width: 24),
+                          _balanceStat('Vehicle', profile?.vehicleId ?? '—'),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: _buildStatBox('Amount\nEarned',
-                      '\$${_totalEarned.toStringAsFixed(0)}', Colors.green),
+                SizedBox(height: 24),
+                Text('This Period',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _buildStatBox('Today\nTrips', '${summary.tripsToday}', Colors.teal)),
+                    SizedBox(width: 12),
+                    Expanded(child: _buildStatBox('Today\nEarned', 'EGP ${summary.today.toStringAsFixed(0)}', Colors.green)),
+                    SizedBox(width: 12),
+                    Expanded(child: _buildStatBox('This Week', 'EGP ${summary.thisWeek.toStringAsFixed(0)}', Colors.orange)),
+                  ],
                 ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: _buildStatBox(
-                      'Cancelled',
-                      '${DriverData.tripHistory.where((t) => t['status'] == 'Cancelled').length}',
-                      Colors.orange),
+                SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 54,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          title: Text('Withdraw Earnings'),
+                          content: Text(
+                              'Withdrawal will be processed within 24 hours via Vodafone Cash or InstaPay.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: Text('Cancel'),
+                            ),
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(context),
+                              style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.teal.shade700),
+                              child: Text('Confirm',
+                                  style: TextStyle(color: Colors.white)),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    icon: Icon(Icons.account_balance_wallet, color: Colors.white),
+                    label: Text('Withdraw Earnings',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal.shade700,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
                 ),
+                SizedBox(height: 20),
               ],
             ),
-            SizedBox(height: 24),
-
-            // Breakdown
-            Text('Earnings Breakdown',
-                style:
-                    TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-            SizedBox(height: 12),
-            ...DriverData.tripHistory
-                .where((t) => t['status'] == 'Completed')
-                .map((t) => _buildEarningRow(t)),
-            SizedBox(height: 20),
-
-            // Withdraw button
-            SizedBox(
-              width: double.infinity,
-              height: 54,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: Text('Withdraw Earnings'),
-                      content: Text(
-                          'Withdrawal of \$${DriverData.profile['balance'].toStringAsFixed(2)} will be processed within 24 hours.'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: Text('Cancel'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.teal.shade700),
-                          child: Text('Confirm',
-                              style: TextStyle(color: Colors.white)),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                icon: Icon(Icons.account_balance_wallet,
-                    color: Colors.white),
-                label: Text('Withdraw Earnings',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal.shade700,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
-            ),
-            SizedBox(height: 20),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -2133,13 +2310,10 @@ class DriverEarningsTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: TextStyle(color: Colors.white60, fontSize: 11)),
+        Text(label, style: TextStyle(color: Colors.white60, fontSize: 11)),
         Text(value,
             style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 14)),
+                color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
       ],
     );
   }
@@ -2156,53 +2330,11 @@ class DriverEarningsTab extends StatelessWidget {
         children: [
           Text(value,
               style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: color.shade700)),
+                  fontSize: 20, fontWeight: FontWeight.bold, color: color.shade700)),
           SizedBox(height: 6),
           Text(label,
-              style:
-                  TextStyle(fontSize: 11, color: color.shade600),
+              style: TextStyle(fontSize: 11, color: color.shade600),
               textAlign: TextAlign.center),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEarningRow(Map<String, dynamic> trip) {
-    return Container(
-      margin: EdgeInsets.only(bottom: 10),
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black12, blurRadius: 6, offset: Offset(0, 2)),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.check_circle, color: Colors.teal.shade400, size: 20),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(trip['passenger'],
-                    style: TextStyle(
-                        fontWeight: FontWeight.w500, fontSize: 14)),
-                Text(trip['date'],
-                    style: TextStyle(
-                        color: Colors.grey.shade500, fontSize: 11)),
-              ],
-            ),
-          ),
-          Text('\$${trip['amount'].toStringAsFixed(2)}',
-              style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.teal.shade700,
-                  fontSize: 15)),
         ],
       ),
     );
@@ -2216,116 +2348,131 @@ class DriverProfileTab extends StatefulWidget {
 }
 
 class _DriverProfileTabState extends State<DriverProfileTab> {
+  late Future<DriverModel> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = DriverDatabaseService.instance
+        .getDriverProfile(DriverAuthService.currentDriverId);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final p = DriverData.profile;
     return Scaffold(
       appBar: AppBar(title: Text('My Profile'), centerTitle: true),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(20),
-        child: Column(
-          children: [
-            // Avatar + name
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 10,
-                      offset: Offset(0, 4)),
+      body: FutureBuilder<DriverModel>(
+        future: _future,
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting && snap.data == null) {
+            return Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError && snap.data == null) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
+                  SizedBox(height: 12),
+                  Text('Could not load profile',
+                      style: TextStyle(color: Colors.grey.shade600)),
+                  SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => setState(() => _future =
+                        DriverDatabaseService.instance
+                            .getDriverProfile(DriverAuthService.currentDriverId)),
+                    child: Text('Retry'),
+                  ),
                 ],
               ),
-              child: Column(
-                children: [
-                  Stack(
+            );
+          }
+          final name = snap.data?.name ?? DriverAuthService.currentDriverName;
+          final phone = snap.data?.phone ?? DriverAuthService.currentDriverPhone;
+          final rating = snap.data?.rating ?? 0.0;
+          final vehicleType = snap.data?.vehicleType.label ?? '—';
+          final vehicleId = snap.data?.vehicleId ?? '—';
+          final totalTrips = snap.data?.totalTrips ?? 0;
+
+          return SingleChildScrollView(
+            padding: EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4)),
+                    ],
+                  ),
+                  child: Column(
                     children: [
                       CircleAvatar(
                         radius: 44,
                         backgroundColor: Colors.teal.shade100,
                         child: Text(
-                          p['name'][0],
+                          name.isNotEmpty ? name[0] : 'D',
                           style: TextStyle(
                               fontSize: 36,
                               color: Colors.teal.shade700,
                               fontWeight: FontWeight.bold),
                         ),
                       ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: Container(
-                          padding: EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.teal.shade600,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(Icons.edit,
-                              size: 14, color: Colors.white),
-                        ),
+                      SizedBox(height: 14),
+                      Text(name,
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text(phone,
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+                      SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.star, color: Colors.amber, size: 18),
+                          SizedBox(width: 4),
+                          Text('${rating.toStringAsFixed(1)} Rating',
+                              style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                          SizedBox(width: 16),
+                          Icon(Icons.circle, color: Colors.green, size: 10),
+                          SizedBox(width: 4),
+                          Text('Approved Driver',
+                              style: TextStyle(
+                                  color: Colors.green,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500)),
+                        ],
                       ),
                     ],
                   ),
-                  SizedBox(height: 14),
-                  Text(p['name'],
-                      style: TextStyle(
-                          fontSize: 22, fontWeight: FontWeight.bold)),
-                  SizedBox(height: 4),
-                  Text(p['phone'],
-                      style: TextStyle(
-                          color: Colors.grey.shade600, fontSize: 14)),
-                  SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.star, color: Colors.amber, size: 18),
-                      SizedBox(width: 4),
-                      Text('${p['rating']} Rating',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w500,
-                              fontSize: 14)),
-                      SizedBox(width: 16),
-                      Icon(Icons.circle, color: Colors.green, size: 10),
-                      SizedBox(width: 4),
-                      Text('Approved Driver',
-                          style: TextStyle(
-                              color: Colors.green,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500)),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+                SizedBox(height: 20),
+                _buildSection('Vehicle Information', [
+                  _profileRow(Icons.directions_boat, 'Vehicle Type', vehicleType),
+                  _profileRow(Icons.numbers, 'Vehicle ID', vehicleId),
+                  _profileRow(Icons.route, 'Total Trips', '$totalTrips trips'),
+                ]),
+                SizedBox(height: 16),
+                _buildSection('Account', [
+                  _actionRow(Icons.lock, 'Change Password', Colors.blue, () {}),
+                  _actionRow(Icons.support_agent, 'Contact Support', Colors.teal, () {}),
+                  _actionRow(Icons.logout, 'Logout', Colors.red, () async {
+                    await DriverAuthService.signOut();
+                    if (context.mounted) {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (_) => DriverLoginScreen()),
+                      );
+                    }
+                  }),
+                ]),
+                SizedBox(height: 20),
+              ],
             ),
-            SizedBox(height: 20),
-
-            // Vehicle info
-            _buildSection('Vehicle Information', [
-              _profileRow(Icons.directions_boat, 'Vehicle Type', p['type']),
-              _profileRow(Icons.numbers, 'Vehicle ID', p['vehicle']),
-              _profileRow(
-                  Icons.route, 'Total Trips', '${p['totalTrips']} trips'),
-            ]),
-            SizedBox(height: 16),
-
-            // Account actions
-            _buildSection('Account', [
-              _actionRow(Icons.lock, 'Change Password', Colors.blue, () {}),
-              _actionRow(Icons.support_agent, 'Contact Support', Colors.teal,
-                  () {}),
-              _actionRow(Icons.logout, 'Logout', Colors.red, () {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => DriverLoginScreen()),
-                );
-              }),
-            ]),
-            SizedBox(height: 20),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -2338,8 +2485,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(
-              color: Colors.black12, blurRadius: 8, offset: Offset(0, 3)),
+          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3)),
         ],
       ),
       child: Column(
@@ -2347,9 +2493,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
         children: [
           Text(title,
               style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: Colors.grey.shade700)),
+                  fontWeight: FontWeight.bold, fontSize: 15, color: Colors.grey.shade700)),
           SizedBox(height: 12),
           ...children,
         ],
@@ -2364,20 +2508,15 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
         children: [
           Icon(icon, size: 18, color: Colors.teal.shade500),
           SizedBox(width: 12),
-          Text('$label:',
-              style: TextStyle(
-                  color: Colors.grey.shade600, fontSize: 13)),
+          Text('$label:', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
           SizedBox(width: 8),
-          Text(value,
-              style: TextStyle(
-                  fontWeight: FontWeight.w500, fontSize: 13)),
+          Text(value, style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
         ],
       ),
     );
   }
 
-  Widget _actionRow(
-      IconData icon, String label, Color color, VoidCallback onTap) {
+  Widget _actionRow(IconData icon, String label, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
@@ -2394,12 +2533,9 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
               child: Icon(icon, size: 18, color: color),
             ),
             SizedBox(width: 14),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w500)),
+            Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
             Spacer(),
-            Icon(Icons.arrow_forward_ios,
-                size: 14, color: Colors.grey.shade400),
+            Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey.shade400),
           ],
         ),
       ),
@@ -2448,8 +2584,22 @@ class _TripRequestNotificationScreenState
         SnackBar(content: Text('Request timed out — auto declined')));
   }
 
-  void _accept() {
+  void _accept() async {
     _countdown?.cancel();
+    try {
+      await DriverDatabaseService.instance.acceptTrip(
+        widget.request['id'],
+        DriverAuthService.currentDriverId,
+        DriverAuthService.currentDriverName,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to accept trip. Please try again.')));
+      Navigator.pop(context);
+      return;
+    }
+    if (!mounted) return;
     Navigator.pushReplacement(
         context,
         MaterialPageRoute(

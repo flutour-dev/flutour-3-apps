@@ -1,6 +1,4 @@
 // lib/models.dart — FluTour Admin App
-// Firestore-ready data models
-// TODO: Connect toMap()/fromMap() to Firestore when Google account is recovered
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 
@@ -241,8 +239,6 @@ class TripModel {
 }
 
 // ── DashboardStats ────────────────────────────────────────────────────────
-// Aggregated stats for admin dashboard
-// TODO: Compute from Firestore aggregation queries
 class DashboardStats {
   final int totalPassengers;
   final int activeDrivers;

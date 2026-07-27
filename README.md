@@ -47,14 +47,22 @@ Firestore rules: `firestore.rules` (deployed via Firebase CLI)
 
 ---
 
-## Test Credentials
+## Getting Started
 
-| App | Phone | Password |
-|-----|-------|----------|
-| Passenger | `01012345678` | `Test1234` |
-| Driver | `01111111111` | `Test1234` |
+### Passenger App
+1. Open the app and tap **Create Account**
+2. Enter your phone number and set a password
+3. You can immediately book rides — no approval needed
 
-> Demo mode: Passenger `0000000000` / `demo123` · Driver `1111111111` / `demo123`
+### Driver App
+1. Open the app and tap **Create Account**
+2. Fill in your details and submit registration
+3. Wait for **Admin approval** before you can go online and accept trips
+
+### Admin Panel
+1. Log in with the admin account (set up directly in Firebase Auth)
+2. Go to **Driver Approvals** to review and approve pending drivers
+3. Monitor live trips and manage the platform from the dashboard
 
 ---
 

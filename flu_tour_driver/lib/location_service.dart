@@ -57,14 +57,17 @@ class DriverLocationService {
           'Location permanently denied. Please enable it in Settings.');
     }
 
-    final position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        timeLimit: Duration(seconds: 10),
-      ),
-    );
-    _lastPosition = position;
-    return LocationResult.success(position);
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+      _lastPosition = position;
+      return LocationResult.success(position);
+    } catch (e) {
+      return LocationResult.error('Could not get location: $e');
+    }
   }
 
   // ── 3-second broadcast loop ───────────────────────────────────────────────

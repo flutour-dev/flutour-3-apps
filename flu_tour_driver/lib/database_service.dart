@@ -121,13 +121,18 @@ class DriverDatabaseService {
     });
   }
 
-  Future<void> completeTrip(String tripId, double fare) async {
+  Future<void> completeTrip(String tripId, double fare, String driverId) async {
     final batch = _db.batch();
     batch.update(_db.collection('trips').doc(tripId), {
       'status': 'completed',
       'completedAt': FieldValue.serverTimestamp(),
     });
-    // Earnings credited in Cloud Function; just update local balance optimistically
+    // 85% driver share (15% platform fee)
+    final driverEarning = fare * 0.85;
+    batch.update(_db.collection('drivers').doc(driverId), {
+      'balance': FieldValue.increment(driverEarning),
+      'totalTrips': FieldValue.increment(1),
+    });
     await batch.commit();
   }
 

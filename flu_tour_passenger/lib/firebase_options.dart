@@ -6,7 +6,7 @@ class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
       throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web.',
+        'DefaultFirebaseOptions have not been configured for web - passenger app is mobile only.',
       );
     }
     switch (defaultTargetPlatform) {
@@ -22,21 +22,21 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBQQW7o6djL2SHOYAbbYLOOVSoc3dKi17U',
-    appId: '1:1032687895242:android:528226c645fff8e3abaa33',
-    messagingSenderId: '1032687895242',
-    projectId: 'flutour-dev',
-    databaseURL: 'https://flutour-dev-default-rtdb.europe-west1.firebasedatabase.app',
-    storageBucket: 'flutour-dev.firebasestorage.app',
+    apiKey: 'AIzaSyCqcvs9fmoSpv1PSdtAVyHgK54kGUPFC4I',
+    appId: '1:258397191065:android:5ae8b79f763662342a7108',
+    messagingSenderId: '258397191065',
+    projectId: 'flutour-3fc69',
+    databaseURL: 'https://flutour-3fc69-default-rtdb.firebaseio.com',
+    storageBucket: 'flutour-3fc69.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyBQQW7o6djL2SHOYAbbYLOOVSoc3dKi17U',
-    appId: '1:1032687895242:android:528226c645fff8e3abaa33',
-    messagingSenderId: '1032687895242',
-    projectId: 'flutour-dev',
-    databaseURL: 'https://flutour-dev-default-rtdb.europe-west1.firebasedatabase.app',
-    storageBucket: 'flutour-dev.firebasestorage.app',
+    apiKey: 'AIzaSyCqcvs9fmoSpv1PSdtAVyHgK54kGUPFC4I',
+    appId: '1:258397191065:android:5ae8b79f763662342a7108',
+    messagingSenderId: '258397191065',
+    projectId: 'flutour-3fc69',
+    databaseURL: 'https://flutour-3fc69-default-rtdb.firebaseio.com',
+    storageBucket: 'flutour-3fc69.firebasestorage.app',
     iosBundleId: 'com.flutour.passenger',
   );
 }

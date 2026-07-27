@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CLIENT_ID</key>
-	<string>258397191065-ia735egkerkrrgqj3ri3qg9a7o8lnbhb.apps.googleusercontent.com</string>
+	<string>258397191065-ifrlu6tlb1bfal1c6vogqj64ioe21925.apps.googleusercontent.com</string>
 	<key>REVERSED_CLIENT_ID</key>
-	<string>com.googleusercontent.apps.258397191065-ia735egkerkrrgqj3ri3qg9a7o8lnbhb</string>
+	<string>com.googleusercontent.apps.258397191065-ifrlu6tlb1bfal1c6vogqj64ioe21925</string>
 	<key>API_KEY</key>
 	<string>AIzaSyA_Y1sLVHmNwswr2hPtK7EhjjG3e80zAHs</string>
 	<key>GCM_SENDER_ID</key>
@@ -13,7 +13,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.flutour.passenger</string>
+	<string>com.flutour.admin</string>
 	<key>PROJECT_ID</key>
 	<string>flutour-3fc69</string>
 	<key>STORAGE_BUCKET</key>
@@ -29,7 +29,7 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:258397191065:ios:effe0befb9b882a22a7108</string>
+	<string>1:258397191065:ios:710b22302e966d532a7108</string>
 	<key>DATABASE_URL</key>
 	<string>https://flutour-3fc69-default-rtdb.firebaseio.com</string>
 </dict>

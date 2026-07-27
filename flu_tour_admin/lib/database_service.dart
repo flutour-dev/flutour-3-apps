@@ -1,11 +1,4 @@
 // lib/database_service.dart — FluTour Admin App
-// Firestore-ready data layer with mock data
-// TODO: Replace mock implementations with Firestore calls when Google account is recovered
-//
-// Firestore indexes needed:
-//   drivers: status ASC, createdAt DESC
-//   users: status ASC, joinedAt DESC
-//   trips: status ASC, date DESC
 
 import 'models.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';

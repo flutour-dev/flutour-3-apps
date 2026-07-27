@@ -61,13 +61,11 @@ class FluTourPassengerApp extends StatelessWidget {
 
 // ===== AUTH SERVICE =====
 class AuthService {
-  static bool _demoMode = false;
   static String _currentUserName = '';
   static String _currentUserPhone = '';
   static String _tempPassword = '';
 
-  static bool get isLoggedIn =>
-      _demoMode || FirebaseAuth.instance.currentUser != null;
+  static bool get isLoggedIn => FirebaseAuth.instance.currentUser != null;
   static String get currentUserId =>
       FirebaseAuth.instance.currentUser?.uid ?? '';
   static String get currentUserName => _currentUserName;
@@ -75,24 +73,18 @@ class AuthService {
 
   static Future<void> loadSession() async {
     final prefs = await SharedPreferences.getInstance();
-    _demoMode = prefs.getBool('passenger_demo') ?? false;
     _currentUserName = prefs.getString('passenger_name') ?? '';
     _currentUserPhone = prefs.getString('passenger_phone') ?? '';
-    if (_demoMode && FirebaseAuth.instance.currentUser == null) {
-      try { await FirebaseAuth.instance.signInAnonymously(); } catch (_) {}
-    }
-    if (!_demoMode) {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null && _currentUserName.isEmpty) {
-        try {
-          final doc = await FirebaseFirestore.instance
-              .collection('users').doc(user.uid).get();
-          _currentUserName = doc.data()?['name'] ?? '';
-          _currentUserPhone = doc.data()?['phone'] ?? '';
-          await prefs.setString('passenger_name', _currentUserName);
-          await prefs.setString('passenger_phone', _currentUserPhone);
-        } catch (_) {}
-      }
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && _currentUserName.isEmpty) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users').doc(user.uid).get();
+        _currentUserName = doc.data()?['name'] ?? '';
+        _currentUserPhone = doc.data()?['phone'] ?? '';
+        await prefs.setString('passenger_name', _currentUserName);
+        await prefs.setString('passenger_phone', _currentUserPhone);
+      } catch (_) {}
     }
   }
 
@@ -100,24 +92,6 @@ class AuthService {
       '${phone.replaceAll(RegExp(r'[^0-9]'), '')}@flutour.app';
 
   static Future<String?> signIn(String phone, String password) async {
-    // Demo mode — use phone 0000000000 / password demo123 to test UI
-    if (phone.replaceAll(RegExp(r'[^0-9]'), '') == '0000000000' &&
-        password == 'demo123') {
-      _demoMode = true;
-      _currentUserName = 'Ahmed Hassan';
-      _currentUserPhone = phone.trim();
-      // Sign in anonymously so Firestore security rules work in demo mode
-      try {
-        if (FirebaseAuth.instance.currentUser == null) {
-          await FirebaseAuth.instance.signInAnonymously();
-        }
-      } catch (_) {}
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('passenger_demo', true);
-      await prefs.setString('passenger_name', _currentUserName);
-      await prefs.setString('passenger_phone', _currentUserPhone);
-      return null;
-    }
     try {
       final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _phoneToEmail(phone), password: password);
@@ -134,7 +108,7 @@ class AuthService {
       if (e.code == 'wrong-password') return 'Incorrect password';
       return e.message ?? 'Sign in failed';
     } catch (_) {
-      return 'Service unavailable. Demo login: 0000000000 / demo123';
+      return 'Service unavailable. Please check your connection.';
     }
   }
 
@@ -191,70 +165,17 @@ class AuthService {
   }
 
   static Future<void> signOut() async {
-    _demoMode = false;
     if (FirebaseAuth.instance.currentUser != null) {
       await FirebaseAuth.instance.signOut();
     }
     _currentUserName = '';
     _currentUserPhone = '';
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('passenger_demo');
     await prefs.remove('passenger_name');
     await prefs.remove('passenger_phone');
   }
 }
 
-// ===== MOCK DATA =====
-class PassengerData {
-  static Map<String, dynamic> profile = {
-    'name': 'Ahmed Hassan',
-    'phone': '01012345678',
-    'totalRides': 12,
-    'memberSince': 'January 2024',
-  };
-
-  static List<Map<String, dynamic>> tripHistory = [
-    {
-      'id': 'BK001',
-      'type': 'Felucca',
-      'vehicle': 'F072',
-      'driver': 'Hassan Mahmoud',
-      'pickup': 'Luxor Temple',
-      'dropoff': 'Karnak Temple',
-      'amount': 12.0,
-      'date': '2024-06-28',
-      'status': 'Completed',
-      'payment': 'Cash',
-      'rating': 5,
-    },
-    {
-      'id': 'BK002',
-      'type': 'Horse Carriage',
-      'vehicle': 'H062',
-      'driver': 'Ibrahim Saad',
-      'pickup': 'Winter Palace Hotel',
-      'dropoff': 'Nile Corniche',
-      'amount': 12.0,
-      'date': '2024-06-20',
-      'status': 'Completed',
-      'payment': 'Credit Card',
-      'rating': 4,
-    },
-    {
-      'id': 'BK003',
-      'type': 'Felucca',
-      'vehicle': 'F015',
-      'driver': 'Karim Fathy',
-      'pickup': 'Luxor Museum',
-      'dropoff': 'Nile Corniche',
-      'amount': 0.0,
-      'date': '2024-06-10',
-      'status': 'Cancelled',
-      'payment': '-',
-      'rating': 0,
-    },
-  ];
-}
 
 // ===== 1. SPLASH SCREEN =====
 class SplashScreen extends StatefulWidget {
@@ -281,7 +202,6 @@ class _SplashScreenState extends State<SplashScreen>
     Timer(Duration(seconds: 3), () {
       if (!mounted) return;
       // Navigation guard: skip login if already authenticated
-      // TODO: Replace with FirebaseAuth.instance.currentUser != null
       if (AuthService.isLoggedIn) {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (_) => PassengerHomeScreen()));
@@ -412,7 +332,6 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     setState(() => _loading = true);
-    // TODO: FirebaseAuth will handle real credential verification
     final error = await AuthService.signIn(
         _phoneCtrl.text.trim(), _passCtrl.text.trim());
     if (!mounted) return;
@@ -695,8 +614,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(error)));
                         } else {
-                          PassengerData.profile['name'] = _nameCtrl.text.trim();
-                          PassengerData.profile['phone'] = _phoneCtrl.text.trim();
                           Navigator.push(context, MaterialPageRoute(
                               builder: (_) => OtpScreen(
                                   phone: _phoneCtrl.text.trim(),
@@ -1167,7 +1084,7 @@ class HomeTab extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Hello, ${PassengerData.profile['name'].toString().split(' ').first}!',
+                        Text('Hello, ${AuthService.currentUserName.split(' ').first}!',
                             style: TextStyle(color: Colors.white70, fontSize: 14)),
                         SizedBox(height: 4),
                         Text('Where to today?',
@@ -1211,23 +1128,6 @@ class HomeTab extends StatelessWidget {
             ),
             SizedBox(height: 24),
 
-            // Quick stats
-            Row(
-              children: [
-                Expanded(
-                    child: _statCard('Total Rides',
-                        '${PassengerData.profile['totalRides']}', Icons.directions_boat, Colors.blue)),
-                SizedBox(width: 12),
-                Expanded(
-                    child: _statCard('Member Since',
-                        'Jan 2024', Icons.calendar_today, Colors.purple)),
-                SizedBox(width: 12),
-                Expanded(
-                    child: _statCard('Saved', '\$0', Icons.local_offer, Colors.green)),
-              ],
-            ),
-            SizedBox(height: 24),
-
             // Ride types
             Text('Ride Types',
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
@@ -1261,27 +1161,6 @@ class HomeTab extends StatelessWidget {
             ),
             SizedBox(height: 24),
 
-            // Recent trip
-            if (PassengerData.tripHistory.isNotEmpty) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Last Trip',
-                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                  GestureDetector(
-                    onTap: () {
-                      final state = context
-                          .findAncestorStateOfType<_PassengerHomeScreenState>();
-                      state?.setState(() => state._idx = 2);
-                    },
-                    child: Text('See all',
-                        style: TextStyle(color: Colors.blue.shade700, fontSize: 13)),
-                  ),
-                ],
-              ),
-              SizedBox(height: 12),
-              _recentTripCard(PassengerData.tripHistory.first),
-            ],
             SizedBox(height: 20),
 
             // Safety info
@@ -1463,66 +1342,6 @@ class HomeTab extends StatelessWidget {
     );
   }
 
-  Widget _recentTripCard(Map<String, dynamic> trip) {
-    return Container(
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3))
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: EdgeInsets.all(10),
-            decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(10)),
-            child: Icon(
-              trip['type'] == 'Felucca' ? Icons.sailing : Icons.directions,
-              color: Colors.blue.shade700,
-              size: 24,
-            ),
-          ),
-          SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(trip['type'],
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                Text('${trip['pickup']} → ${trip['dropoff']}',
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                    overflow: TextOverflow.ellipsis),
-                Text(trip['date'],
-                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('\$${trip['amount'].toStringAsFixed(0)}',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue.shade700,
-                      fontSize: 16)),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(8)),
-                child: Text(trip['status'],
-                    style: TextStyle(fontSize: 11, color: Colors.green)),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 // ===== 6. BOOK RIDE TAB (Map → Vehicle → Payment) =====
@@ -1601,11 +1420,10 @@ class _BookRideTabState extends State<BookRideTab> {
     }
     final dist = FareEstimator.distanceKm(
         pickup.latitude, pickup.longitude, dest.latitude, dest.longitude);
-    final fare = FareEstimator.estimate(dist);
     final eta = FareEstimator.etaString(dist);
     setState(() {
-      _fareEstimate =
-          '~${dist.toStringAsFixed(1)} km · ${fare.total.toStringAsFixed(0)} EGP · $eta';
+      // Fixed prices: Felucca 50 EGP · Horse Carriage 80 EGP
+      _fareEstimate = '~${dist.toStringAsFixed(1)} km · EGP 50–80 · $eta';
     });
   }
 
@@ -1907,7 +1725,7 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
         .map((snap) => snap.docs.map((d) {
               final data = d.data();
               final vType = data['vehicleType'] ?? 'felucca';
-              final isFelucca = vType == 'felucca';
+              final isFelucca = vType.toLowerCase().replaceAll(' ', '_') == 'felucca';
               return {
                 'id': data['vehicleId'] ?? d.id,
                 'driverUid': d.id,
@@ -1920,7 +1738,7 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
                     return r.toString();
                   }(),
                 'eta': '5 min',
-                'price': 'EGP 12',
+                'price': isFelucca ? 'EGP 50' : 'EGP 80',
                 'label': isFelucca ? 'Nile Felucca Ride' : 'Hantour Carriage Ride',
                 'gradientA': isFelucca ? Color(0xFF0D47A1) : Color(0xFFBF360C),
                 'gradientB': isFelucca ? Color(0xFF42A5F5) : Color(0xFFFFB74D),
@@ -2140,7 +1958,7 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
                   ),
-                  child: Text('Proceed to Payment — \$12.00',
+                  child: Text('Proceed to Payment',
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 16,
@@ -2309,6 +2127,8 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
   }
 }
 
+double _fareForType(String type) => type == 'Felucca' ? 50.0 : 80.0;
+
 // ===== 8. PAYMENT SCREEN =====
 class PaymentScreen extends StatefulWidget {
   final String vehicleId;
@@ -2378,35 +2198,44 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         _summaryRow(Icons.trip_origin, 'From', widget.pickup),
                         _summaryRow(Icons.location_on, 'To', widget.dropoff),
                         Divider(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Ride price:', style: TextStyle(color: Colors.grey.shade700)),
-                            Text('\$10.00', style: TextStyle(fontWeight: FontWeight.w500)),
-                          ],
-                        ),
-                        SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Service fee:', style: TextStyle(color: Colors.grey.shade700)),
-                            Text('\$2.00', style: TextStyle(fontWeight: FontWeight.w500)),
-                          ],
-                        ),
-                        Divider(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Total:',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 16)),
-                            Text('\$12.00',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                    color: Colors.blue.shade700)),
-                          ],
-                        ),
+                        Builder(builder: (context) {
+                          final fare = _fareForType(widget.type);
+                          final serviceFee = (fare * 0.10).roundToDouble();
+                          final total = fare + serviceFee;
+                          return Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('Ride price:', style: TextStyle(color: Colors.grey.shade700)),
+                                  Text('EGP ${fare.toStringAsFixed(0)}', style: TextStyle(fontWeight: FontWeight.w500)),
+                                ],
+                              ),
+                              SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('Service fee:', style: TextStyle(color: Colors.grey.shade700)),
+                                  Text('EGP ${serviceFee.toStringAsFixed(0)}', style: TextStyle(fontWeight: FontWeight.w500)),
+                                ],
+                              ),
+                              Divider(height: 16),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('Total:',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold, fontSize: 16)),
+                                  Text('EGP ${total.toStringAsFixed(0)}',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 18,
+                                          color: Colors.blue.shade700)),
+                                ],
+                              ),
+                            ],
+                          );
+                        }),
                       ],
                     ),
                   ),
@@ -2509,7 +2338,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         vehicleType: widget.type,
                         driver: widget.driver,
                         payment: _selected,
-                        fare: 12.0,
+                        fare: _fareForType(widget.type),
                       ),
                     ),
                   );
@@ -2618,10 +2447,10 @@ class _CashPaymentScreenState extends State<CashPaymentScreen> {
             _row('Driver', widget.driver),
             _row('From', widget.pickup),
             _row('To', widget.dropoff),
-            _row('Ride Price', '\$10.00'),
-            _row('Service Fee', '\$2.00'),
+            _row('Ride Price', 'EGP ${(_fareForType(widget.type) * 0.9).toStringAsFixed(0)}'),
+            _row('Service Fee (10%)', 'EGP ${(_fareForType(widget.type) * 0.1).toStringAsFixed(0)}'),
             Divider(height: 20),
-            _row('Total', '\$12.00', bold: true),
+            _row('Total', 'EGP ${_fareForType(widget.type).toStringAsFixed(0)}', bold: true),
             SizedBox(height: 20),
             Container(
               padding: EdgeInsets.all(14),
@@ -2647,7 +2476,7 @@ class _CashPaymentScreenState extends State<CashPaymentScreen> {
             CheckboxListTile(
               value: _agreed,
               onChanged: (v) => setState(() => _agreed = v ?? false),
-              title: Text('I agree to pay \$12.00 in cash',
+              title: Text('I agree to pay EGP ${_fareForType(widget.type).toStringAsFixed(0)} in cash',
                   style: TextStyle(fontSize: 13)),
               controlAffinity: ListTileControlAffinity.leading,
               contentPadding: EdgeInsets.zero,
@@ -2668,7 +2497,7 @@ class _CashPaymentScreenState extends State<CashPaymentScreen> {
                             vehicleType: VehicleTypeX.fromString(widget.type),
                             pickup: widget.pickup,
                             dropoff: widget.dropoff,
-                            fare: 12.0,
+                            fare: _fareForType(widget.type),
                             paymentMethod: PaymentMethod.cash,
                           );
                           if (context.mounted) {
@@ -2801,7 +2630,7 @@ class _CreditCardPaymentScreenState extends State<CreditCardPaymentScreen> {
       vehicleType: VehicleTypeX.fromString(widget.type),
       pickup: widget.pickup,
       dropoff: widget.dropoff,
-      fare: 12.0,
+      fare: _fareForType(widget.type),
       paymentMethod: PaymentMethod.creditCard,
     );
     Future.delayed(Duration(seconds: 2), () {
@@ -2987,7 +2816,7 @@ class _CreditCardPaymentScreenState extends State<CreditCardPaymentScreen> {
                 children: [
                   Text('Total Amount',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  Text('\$12.00',
+                  Text('EGP ${_fareForType(widget.type).toStringAsFixed(0)}',
                       style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 18,
@@ -3008,7 +2837,7 @@ class _CreditCardPaymentScreenState extends State<CreditCardPaymentScreen> {
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14)),
                       ),
-                      child: Text('Pay \$12.00',
+                      child: Text('Pay EGP ${_fareForType(widget.type).toStringAsFixed(0)}',
                           style: TextStyle(
                               color: Colors.white,
                               fontSize: 17,
@@ -3155,7 +2984,7 @@ class _MobileWalletScreenState extends State<MobileWalletScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  Text('\$12.00',
+                  Text('EGP ${_fareForType(widget.type).toStringAsFixed(0)}',
                       style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 18,
@@ -3202,7 +3031,7 @@ class _MobileWalletScreenState extends State<MobileWalletScreen> {
                           vehicleType: VehicleTypeX.fromString(widget.type),
                           pickup: widget.pickup,
                           dropoff: widget.dropoff,
-                          fare: 12.0,
+                          fare: _fareForType(widget.type),
                           paymentMethod: PaymentMethod.mobileWallet,
                         );
                         Future.delayed(Duration(seconds: 2), () {
@@ -3262,7 +3091,8 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
   late Animation<double> _scaleAnim;
   int _rideStep = 0; // 0=confirmed, 1=driver on way, 2=arrived, 3=in progress
   StreamSubscription? _tripSub;
-  String _debugStatus = 'waiting…'; // temporary debug label
+  Timer? _pollTimer;
+  bool _navigated = false;
 
   final List<Map<String, dynamic>> _steps = [
     {'label': 'Booking Confirmed', 'icon': Icons.check_circle, 'color': Colors.green},
@@ -3279,66 +3109,69 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
         .animate(CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut));
     _ctrl.forward();
 
-    // Add to trip history
-    PassengerData.tripHistory.insert(0, {
-      'id': 'BK${PassengerData.tripHistory.length + 1}',
-      'type': widget.type,
-      'vehicle': widget.vehicleId,
-      'driver': widget.driver,
-      'pickup': widget.pickup,
-      'dropoff': widget.dropoff,
-      'amount': 12.0,
-      'date': DateTime.now().toString().substring(0, 10),
-      'status': 'Completed',
-      'payment': widget.payment,
-      'rating': 0,
-    });
-    PassengerData.profile['totalRides'] =
-        (PassengerData.profile['totalRides'] as int) + 1;
-
-    // Listen to real trip status from Firestore
     if (widget.tripId != null) {
+      // Real-time listener — primary mechanism
       _tripSub = FirebaseFirestore.instance
           .collection('trips')
           .doc(widget.tripId)
           .snapshots()
-          .listen((doc) {
-        if (!mounted) return;
-        if (!doc.exists) {
-          setState(() => _debugStatus = 'doc not found');
-          return;
-        }
-        final status = doc.data()?['status'] ?? '';
-        setState(() => _debugStatus = status.isEmpty ? 'no status field' : status);
-        int step = 0;
-        if (status == 'accepted') step = 1;
-        if (status == 'arrived') step = 2;
-        if (status == 'in_progress') step = 3;
-        if (status == 'completed') {
-          Navigator.pushReplacement(context,
-              MaterialPageRoute(builder: (_) => TripCompletionScreen(
-                driverName: widget.driver,
-                pickup: widget.pickup,
-                dropoff: widget.dropoff,
-                distanceKm: 2.0,
-                durationMin: 20,
-                fareTotal: 12.0,
-              )));
-          return;
-        }
-        setState(() => _rideStep = step);
-      }, onError: (e) {
-        if (mounted) setState(() => _debugStatus = 'ERROR: $e');
+          .listen(
+        (doc) {
+          if (!mounted || _navigated) return;
+          if (!doc.exists) return;
+          _handleStatusUpdate(doc.data()?['status'] ?? '');
+        },
+        onError: (_) {
+          // Listener failed — polling timer will catch the next status change
+        },
+      );
+
+      // Polling fallback — checks every 5 s in case the listener misses an update
+      _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+        if (widget.tripId == null || _navigated || !mounted) return;
+        try {
+          final doc = await FirebaseFirestore.instance
+              .collection('trips')
+              .doc(widget.tripId)
+              .get();
+          if (!doc.exists) return;
+          _handleStatusUpdate(doc.data()?['status'] ?? '');
+        } catch (_) {}
       });
-    } else {
-      _debugStatus = 'no tripId';
     }
+  }
+
+  void _handleStatusUpdate(String status) {
+    if (!mounted || _navigated) return;
+    if (status == 'completed') {
+      _navigated = true;
+      _tripSub?.cancel();
+      _pollTimer?.cancel();
+      Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+              builder: (_) => TripCompletionScreen(
+                    driverName: widget.driver,
+                    pickup: widget.pickup,
+                    dropoff: widget.dropoff,
+                    distanceKm: 2.0,
+                    durationMin: 20,
+                    fareTotal: _fareForType(widget.type),
+                  )));
+      return;
+    }
+    int step = _rideStep;
+    if (status == 'accepted') step = 1;
+    if (status == 'arrived') step = 2;
+    if (status == 'in_progress') step = 3;
+    setState(() => _rideStep = step);
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
     _tripSub?.cancel();
+    _pollTimer?.cancel();
     super.dispose();
   }
 
@@ -3387,9 +3220,6 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
               style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
               textAlign: TextAlign.center,
             ),
-            SizedBox(height: 6),
-            Text('DB status: $_debugStatus',
-                style: TextStyle(fontSize: 10, color: Colors.grey.shade400)),
             SizedBox(height: 24),
 
             // Progress steps
@@ -3523,7 +3353,7 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
                     children: [
                       Text('Payment: ${widget.payment}',
                           style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                      Text('\$12.00',
+                      Text('EGP ${_fareForType(widget.type).toStringAsFixed(0)}',
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: Colors.blue.shade700,
@@ -3603,79 +3433,120 @@ class MyTripsTab extends StatefulWidget {
 class _MyTripsTabState extends State<MyTripsTab> {
   String _filter = 'All';
   final _filters = ['All', 'Completed', 'Cancelled'];
+  late Future<List<TripModel>> _future;
 
-  List<Map<String, dynamic>> get _filtered => _filter == 'All'
-      ? PassengerData.tripHistory
-      : PassengerData.tripHistory.where((t) => t['status'] == _filter).toList();
+  @override
+  void initState() {
+    super.initState();
+    _future = DatabaseService.instance.getTripHistory(AuthService.currentUserId);
+  }
+
+  List<TripModel> _applyFilter(List<TripModel> trips) {
+    if (_filter == 'All') return trips;
+    return trips.where((t) => t.status.label == _filter).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('My Trips'), centerTitle: true),
-      body: Column(
-        children: [
-          // Filter chips
-          Container(
-            color: Colors.white,
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
-              children: _filters.map((f) {
-                final selected = _filter == f;
-                return Padding(
-                  padding: EdgeInsets.only(right: 8),
-                  child: GestureDetector(
-                    onTap: () => setState(() => _filter = f),
-                    child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                      decoration: BoxDecoration(
-                        color: selected ? Colors.blue.shade700 : Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                            color: selected ? Colors.blue.shade700 : Colors.grey.shade300),
+      body: FutureBuilder<List<TripModel>>(
+        future: _future,
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
+                  SizedBox(height: 12),
+                  Text('Could not load trips',
+                      style: TextStyle(color: Colors.grey.shade600)),
+                  SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => setState(() => _future =
+                        DatabaseService.instance
+                            .getTripHistory(AuthService.currentUserId)),
+                    child: Text('Retry'),
+                  ),
+                ],
+              ),
+            );
+          }
+          final all = snap.data ?? [];
+          final filtered = _applyFilter(all);
+
+          return Column(
+            children: [
+              // Filter chips
+              Container(
+                color: Colors.white,
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
+                  children: _filters.map((f) {
+                    final selected = _filter == f;
+                    return Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: GestureDetector(
+                        onTap: () => setState(() => _filter = f),
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: selected ? Colors.blue.shade700 : Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: selected ? Colors.blue.shade700 : Colors.grey.shade300),
+                          ),
+                          child: Text(f,
+                              style: TextStyle(
+                                  color: selected ? Colors.white : Colors.grey.shade700,
+                                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                                  fontSize: 13)),
+                        ),
                       ),
-                      child: Text(f,
-                          style: TextStyle(
-                              color: selected ? Colors.white : Colors.grey.shade700,
-                              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                              fontSize: 13)),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          Expanded(
-            child: _filtered.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.sailing, size: 64, color: Colors.grey.shade300),
-                        SizedBox(height: 16),
-                        Text('No trips yet',
-                            style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
-                        SizedBox(height: 8),
-                        Text('Book your first Nile ride!',
-                            style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: EdgeInsets.all(16),
-                    itemCount: _filtered.length,
-                    itemBuilder: (context, i) =>
-                        _buildTripCard(context, _filtered[i]),
-                  ),
-          ),
-        ],
+                    );
+                  }).toList(),
+                ),
+              ),
+              Expanded(
+                child: filtered.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.sailing, size: 64, color: Colors.grey.shade300),
+                            SizedBox(height: 16),
+                            Text('No trips yet',
+                                style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+                            SizedBox(height: 8),
+                            Text('Book your first Nile ride!',
+                                style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: EdgeInsets.all(16),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, i) => _buildTripCard(context, filtered[i]),
+                      ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildTripCard(BuildContext context, Map<String, dynamic> trip) {
-    final bool done = trip['status'] == 'Completed';
-    final Color statusColor =
-        done ? Colors.green : trip['status'] == 'Active' ? Colors.orange : Colors.red;
+  Widget _buildTripCard(BuildContext context, TripModel trip) {
+    final bool done = trip.status == TripStatus.completed;
+    final Color statusColor = done
+        ? Colors.green
+        : trip.status == TripStatus.cancelled
+            ? Colors.red
+            : Colors.orange;
 
     return Container(
       margin: EdgeInsets.only(bottom: 14),
@@ -3683,9 +3554,7 @@ class _MyTripsTabState extends State<MyTripsTab> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3))
-        ],
+        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3698,7 +3567,7 @@ class _MyTripsTabState extends State<MyTripsTab> {
                     color: done ? Colors.blue.shade50 : Colors.red.shade50,
                     borderRadius: BorderRadius.circular(10)),
                 child: Icon(
-                  trip['type'] == 'Felucca' ? Icons.sailing : Icons.directions,
+                  trip.vehicleType == VehicleType.felucca ? Icons.sailing : Icons.directions,
                   color: done ? Colors.blue.shade700 : Colors.red.shade400,
                   size: 22,
                 ),
@@ -3708,9 +3577,9 @@ class _MyTripsTabState extends State<MyTripsTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(trip['type'],
+                    Text(trip.vehicleType.label,
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                    Text(trip['driver'],
+                    Text(trip.driverName.isNotEmpty ? trip.driverName : '—',
                         style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
                   ],
                 ),
@@ -3723,19 +3592,15 @@ class _MyTripsTabState extends State<MyTripsTab> {
                     decoration: BoxDecoration(
                         color: statusColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(10)),
-                    child: Text(trip['status'],
+                    child: Text(trip.status.label,
                         style: TextStyle(
-                            color: statusColor,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold)),
+                            color: statusColor, fontSize: 11, fontWeight: FontWeight.bold)),
                   ),
                   SizedBox(height: 4),
                   Text(
-                    done ? '\$${trip['amount'].toStringAsFixed(0)}' : '-',
+                    done ? 'EGP ${trip.fare.toStringAsFixed(0)}' : '-',
                     style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: Colors.blue.shade700),
+                        fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue.shade700),
                   ),
                 ],
               ),
@@ -3745,15 +3610,14 @@ class _MyTripsTabState extends State<MyTripsTab> {
           Container(
             padding: EdgeInsets.all(10),
             decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(10)),
+                color: Colors.grey.shade50, borderRadius: BorderRadius.circular(10)),
             child: Column(
               children: [
                 Row(children: [
                   Icon(Icons.trip_origin, size: 13, color: Colors.green),
                   SizedBox(width: 6),
                   Expanded(
-                      child: Text(trip['pickup'],
+                      child: Text(trip.pickup,
                           style: TextStyle(fontSize: 12),
                           overflow: TextOverflow.ellipsis)),
                 ]),
@@ -3762,7 +3626,7 @@ class _MyTripsTabState extends State<MyTripsTab> {
                   Icon(Icons.location_on, size: 13, color: Colors.red),
                   SizedBox(width: 6),
                   Expanded(
-                      child: Text(trip['dropoff'],
+                      child: Text(trip.dropoff,
                           style: TextStyle(fontSize: 12),
                           overflow: TextOverflow.ellipsis)),
                 ]),
@@ -3774,21 +3638,20 @@ class _MyTripsTabState extends State<MyTripsTab> {
             children: [
               Icon(Icons.calendar_today, size: 12, color: Colors.grey),
               SizedBox(width: 4),
-              Text(trip['date'],
+              Text(trip.createdAt.toString().substring(0, 10),
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
               SizedBox(width: 12),
               Icon(Icons.payment, size: 12, color: Colors.grey),
               SizedBox(width: 4),
-              Text(trip['payment'],
+              Text(trip.paymentMethod.label,
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
               Spacer(),
-              // Re-book shortcut
               GestureDetector(
                 onTap: () => Navigator.push(context,
                     MaterialPageRoute(
                         builder: (_) => VehicleSelectScreen(
-                              pickup: trip['pickup'],
-                              dropoff: trip['dropoff'],
+                              pickup: trip.pickup,
+                              dropoff: trip.dropoff,
                               time: '20:00 PM',
                               date: 'Today',
                             ))),
@@ -3810,7 +3673,7 @@ class _MyTripsTabState extends State<MyTripsTab> {
                 ),
               ),
               SizedBox(width: 8),
-              if (done && (trip['rating'] as int) == 0)
+              if (done && trip.passengerRating == 0)
                 GestureDetector(
                   onTap: () => _rateDialog(context, trip),
                   child: Container(
@@ -3830,10 +3693,14 @@ class _MyTripsTabState extends State<MyTripsTab> {
                     ]),
                   ),
                 ),
-              if (done && (trip['rating'] as int) > 0)
-                Row(children: List.generate(5,
-                    (i) => Icon(i < (trip['rating'] as int) ? Icons.star : Icons.star_border,
-                        size: 14, color: Colors.amber))),
+              if (done && trip.passengerRating > 0)
+                Row(
+                    children: List.generate(
+                        5,
+                        (i) => Icon(
+                            i < trip.passengerRating ? Icons.star : Icons.star_border,
+                            size: 14,
+                            color: Colors.amber))),
             ],
           ),
         ],
@@ -3841,7 +3708,7 @@ class _MyTripsTabState extends State<MyTripsTab> {
     );
   }
 
-  void _rateDialog(BuildContext context, Map<String, dynamic> trip) {
+  void _rateDialog(BuildContext context, TripModel trip) {
     int tempRating = 5;
     showDialog(
       context: context,
@@ -3851,7 +3718,8 @@ class _MyTripsTabState extends State<MyTripsTab> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('How was your ${trip['type']} ride with ${trip['driver']}?',
+              Text(
+                  'How was your ${trip.vehicleType.label} ride with ${trip.driverName}?',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
               SizedBox(height: 16),
               Row(
@@ -3871,16 +3739,13 @@ class _MyTripsTabState extends State<MyTripsTab> {
             ],
           ),
           actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel')),
             ElevatedButton(
-              onPressed: () {
-                trip['rating'] = tempRating;
-                Navigator.pop(ctx);
+              onPressed: () async {
+                await DatabaseService.instance.rateTrip(trip.id, tempRating);
+                if (ctx.mounted) Navigator.pop(ctx);
               },
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade700),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700),
               child: Text('Submit', style: TextStyle(color: Colors.white)),
             ),
           ],
@@ -3894,7 +3759,8 @@ class _MyTripsTabState extends State<MyTripsTab> {
 class ProfileTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final p = PassengerData.profile;
+    final name = AuthService.currentUserName;
+    final phone = AuthService.currentUserPhone;
     return Scaffold(
       appBar: AppBar(title: Text('My Profile'), centerTitle: true),
       body: SingleChildScrollView(
@@ -3919,7 +3785,7 @@ class ProfileTab extends StatelessWidget {
                         radius: 44,
                         backgroundColor: Colors.blue.shade100,
                         child: Text(
-                          p['name'].toString()[0],
+                          name.isNotEmpty ? name[0] : 'P',
                           style: TextStyle(
                               fontSize: 36,
                               color: Colors.blue.shade700,
@@ -3939,20 +3805,16 @@ class ProfileTab extends StatelessWidget {
                     ],
                   ),
                   SizedBox(height: 14),
-                  Text(p['name'],
+                  Text(name,
                       style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                   SizedBox(height: 4),
-                  Text(p['phone'],
+                  Text(phone,
                       style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
                   SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _badge('${p['totalRides']} Rides', Icons.directions_boat, Colors.blue),
-                      SizedBox(width: 12),
                       _badge('Passenger', Icons.verified, Colors.green),
-                      SizedBox(width: 12),
-                      _badge('Since Jan 2024', Icons.calendar_today, Colors.purple),
                     ],
                   ),
                 ],
@@ -3981,11 +3843,16 @@ class ProfileTab extends StatelessWidget {
               width: double.infinity,
               height: 52,
               child: OutlinedButton.icon(
-                onPressed: () => Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (_) => LoginScreen()),
-                  (route) => false,
-                ),
+                onPressed: () async {
+                  await AuthService.signOut();
+                  if (context.mounted) {
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (_) => LoginScreen()),
+                      (route) => false,
+                    );
+                  }
+                },
                 icon: Icon(Icons.logout, color: Colors.red),
                 label: Text('Logout',
                     style: TextStyle(
@@ -4352,6 +4219,8 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
   late AnimationController _pulse;
   String? _tripId;
   StreamSubscription? _tripSub;
+  Timer? _pollTimer;
+  bool _navigated = false;
 
   @override
   void initState() {
@@ -4360,6 +4229,25 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
         vsync: this, duration: Duration(milliseconds: 900))
       ..repeat(reverse: true);
     _createTripAndListen();
+  }
+
+  void _navigateToConfirmed(String? driverName) {
+    if (_navigated || !mounted) return;
+    _navigated = true;
+    _tripSub?.cancel();
+    _pollTimer?.cancel();
+    Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+            builder: (_) => BookingConfirmedScreen(
+                  vehicleId: '',
+                  type: widget.vehicleType,
+                  driver: driverName ?? widget.driver,
+                  pickup: widget.pickup,
+                  dropoff: widget.dropoff,
+                  payment: widget.payment,
+                  tripId: _tripId,
+                )));
   }
 
   Future<void> _createTripAndListen() async {
@@ -4381,35 +4269,49 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
         paymentMethod: payMethod,
       );
       _tripId = trip.id;
-      // Listen for driver acceptance
+
+      // Real-time listener — primary mechanism
       _tripSub = FirebaseFirestore.instance
           .collection('trips')
           .doc(_tripId)
           .snapshots()
-          .listen((doc) {
-        if (!mounted) return;
-        if (!doc.exists) return;
-        final status = doc.data()?['status'] ?? '';
-        final driverName = doc.data()?['driverName'] ?? widget.driver;
-        if (status == 'accepted' || status == 'in_progress') {
-          _tripSub?.cancel();
-          Navigator.pushReplacement(context,
-              MaterialPageRoute(
-                  builder: (_) => BookingConfirmedScreen(
-                        vehicleId: '',
-                        type: widget.vehicleType,
-                        driver: driverName,
-                        pickup: widget.pickup,
-                        dropoff: widget.dropoff,
-                        payment: widget.payment,
-                        tripId: _tripId,
-                      )));
-        }
+          .listen(
+        (doc) {
+          if (!mounted || _navigated) return;
+          if (!doc.exists) return;
+          final status = doc.data()?['status'] ?? '';
+          final driverName = doc.data()?['driverName'] as String?;
+          if (status == 'accepted' || status == 'in_progress') {
+            _navigateToConfirmed(driverName);
+          }
+        },
+        onError: (_) {
+          // Listener failed (likely a Firestore permission error on status change).
+          // The polling timer below will catch the acceptance instead.
+        },
+      );
+
+      // Polling fallback — fires every 5 s in case the listener misses an update
+      _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+        if (_tripId == null || _navigated || !mounted) return;
+        try {
+          final doc = await FirebaseFirestore.instance
+              .collection('trips')
+              .doc(_tripId)
+              .get();
+          if (!doc.exists) return;
+          final status = doc.data()?['status'] ?? '';
+          final driverName = doc.data()?['driverName'] as String?;
+          if (status == 'accepted' || status == 'in_progress') {
+            _navigateToConfirmed(driverName);
+          }
+        } catch (_) {}
       });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Booking failed: $e'),
+            SnackBar(
+                content: Text('Booking failed: $e'),
                 duration: Duration(seconds: 8)));
       }
     }
@@ -4419,6 +4321,12 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
   void dispose() {
     _pulse.dispose();
     _tripSub?.cancel();
+    _pollTimer?.cancel();
+    // If the passenger navigated away (back button) without a driver accepting,
+    // cancel the trip so it doesn't accumulate as a stale 'requested' entry.
+    if (_tripId != null && !_navigated) {
+      DatabaseService.instance.cancelTrip(_tripId!).catchError((_) {});
+    }
     super.dispose();
   }
 

@@ -31,9 +31,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
@@ -68,11 +65,22 @@ android {
         variant.outputs
             .map { it as com.android.build.gradle.internal.api.BaseVariantOutputImpl }
             .forEach { output ->
-                output.outputFileName = "FluTour-Driver-v${variant.versionName}.apk"
+                val abi = output.getFilter("ABI")
+                output.outputFileName = if (abi != null) {
+                    "FluTour-Driver-v${variant.versionName}-$abi.apk"
+                } else {
+                    "FluTour-Driver-v${variant.versionName}.apk"
+                }
             }
     }
 }
 
 flutter {
     source = "../.."
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }

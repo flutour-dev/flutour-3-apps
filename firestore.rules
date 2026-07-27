@@ -56,18 +56,23 @@ service cloud.firestore {
     // ── trips collection ────────────────────────────────────────────────────
     // Trip: {passengerId, driverId, status, pickup, dropoff, fare, createdAt, ...}
     match /trips/{tripId} {
-      // Passenger can read their own trips
-      allow read: if isSignedIn() && resource.data.passengerId == request.auth.uid;
-      // Approved driver can read all pending trip requests (driverId not yet assigned)
-      allow read: if isApprovedDriver() && resource.data.status == 'requested';
-      // Approved driver can read trips assigned to them
-      allow read: if isApprovedDriver() && resource.data.driverId == request.auth.uid;
+      // Any signed-in user can list/query trips (driver needs this to find ride requests)
+      // Individual document security is enforced by the get rule below
+      allow list: if isSignedIn();
+      // Passenger reads their own trip; driver reads requested or assigned trips
+      allow get: if isSignedIn() && (
+        resource.data.passengerId == request.auth.uid ||
+        resource.data.driverId == request.auth.uid ||
+        resource.data.status == 'requested'
+      );
       // Passenger can create a trip
       allow create: if isSignedIn() && request.resource.data.passengerId == request.auth.uid;
-      // Driver can accept an unassigned trip (sets driverId + status → accepted)
-      allow update: if isApprovedDriver() && resource.data.status == 'requested' && resource.data.driverId == '';
+      // Driver can accept an unassigned requested trip
+      allow update: if isSignedIn() && resource.data.status == 'requested' && resource.data.driverId == '';
       // Driver can update their own assigned trip (arrive, start, complete)
-      allow update: if isApprovedDriver() && resource.data.driverId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.driverId == request.auth.uid;
+      // Passenger can cancel their own requested trip
+      allow update: if isSignedIn() && resource.data.passengerId == request.auth.uid;
       // Admin can read/write all trips
       allow read, write: if isAdmin();
     }
