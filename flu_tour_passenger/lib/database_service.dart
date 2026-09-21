@@ -85,6 +85,7 @@ class DatabaseService {
     double? dropoffLat,
     double? dropoffLng,
     String? scheduledAt,
+    int passengerCount = 1,
   }) async {
     final ref = await _db.collection('trips').add({
       'passengerId': passengerId,
@@ -101,6 +102,7 @@ class DatabaseService {
       'negotiationStatus': 'open',
       'paymentMethod': paymentMethod.value,
       'status': 'requested',
+      'passengerCount': passengerCount,
       'createdAt': FieldValue.serverTimestamp(),
       if (pickupLat != null) 'pickupLat': pickupLat,
       if (pickupLng != null) 'pickupLng': pickupLng,

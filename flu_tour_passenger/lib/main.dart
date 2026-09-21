@@ -19,6 +19,7 @@ import 'models.dart';
 import 'database_service.dart';
 import 'location_service.dart';
 import 'route_service.dart';
+import 'sound_service.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -394,11 +395,11 @@ class _SplashScreenState extends State<SplashScreen>
     _float = Tween<double>(begin: 0, end: 8).animate(
         CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
     _controller.repeat(reverse: true);
-    // Wait for Firebase Auth to restore session, then navigate
-    Future.delayed(Duration(seconds: 3), () async {
+    // Firebase.initializeApp() in main() has already restored the persisted
+    // credential — currentUser is synchronously available here.
+    Future.delayed(Duration(seconds: 3), () {
       if (!mounted) return;
-      final user = await FirebaseAuth.instance.authStateChanges().first;
-      if (!mounted) return;
+      final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (_) => PassengerHomeScreen()));
@@ -1632,6 +1633,7 @@ class _BookRideTabState extends State<BookRideTab> {
   String? _routeInfo; // "1.2 km · 4 min"
   DateTime? _scheduledAt;
   bool get _isScheduled => _scheduledAt != null && _scheduledAt!.isAfter(DateTime.now());
+  int _passengerCount = 1;
 
   static const _spotCoords = {
     'Luxor Temple':  LatLng(25.6987, 32.6390),
@@ -1767,16 +1769,43 @@ class _BookRideTabState extends State<BookRideTab> {
     super.initState();
     _timeCtrl.text = 'Now';
     _dateCtrl.text = 'Today';
-    // Location detected only when user taps the pin button — avoids ANR from
-    // IndexedStack initialising all tabs simultaneously on home screen load.
-    _dropoffCtrl.addListener(() {
-      final typed = _dropoffCtrl.text.trim();
-      final coords = _spotCoords[typed];
-      if (coords != null && _destinationLoc != coords) {
-        setState(() => _destinationLoc = coords);
-        _updateFareEstimate();
-      }
-    });
+  }
+
+  Future<void> _openPickupSearch() async {
+    final l = AppLocalizations.of(context);
+    final result = await Navigator.push<GeoSuggestion>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationSearchScreen(title: l.searchPickupLocation),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _pickupCtrl.text = result.name;
+        _pickupLoc = result.location;
+        _center = result.location;
+      });
+      _mapController.move(result.location, 15.5);
+      _updateFareEstimate();
+    }
+  }
+
+  Future<void> _openDropoffSearch() async {
+    final l = AppLocalizations.of(context);
+    final result = await Navigator.push<GeoSuggestion>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationSearchScreen(title: l.searchDropoffLocation),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _dropoffCtrl.text = result.name;
+        _destinationLoc = result.location;
+      });
+      _mapController.move(result.location, 15.5);
+      _updateFareEstimate();
+    }
   }
 
   @override
@@ -1980,11 +2009,21 @@ class _BookRideTabState extends State<BookRideTab> {
                     padding: EdgeInsets.all(20),
                     child: Column(
                       children: [
-                        _mapInput(_pickupCtrl, AppLocalizations.of(context).pickupPoint,
-                            'Luxor Temple, your hotel...', Icons.trip_origin, Colors.green),
+                        GestureDetector(
+                          onTap: _openPickupSearch,
+                          child: AbsorbPointer(
+                            child: _mapInput(_pickupCtrl, AppLocalizations.of(context).pickupPoint,
+                                AppLocalizations.of(context).searchPickupLocation, Icons.trip_origin, Colors.green),
+                          ),
+                        ),
                         SizedBox(height: 10),
-                        _mapInput(_dropoffCtrl, AppLocalizations.of(context).dropoffPoint,
-                            'Karnak, Nile Corniche...', Icons.location_on, Colors.red),
+                        GestureDetector(
+                          onTap: _openDropoffSearch,
+                          child: AbsorbPointer(
+                            child: _mapInput(_dropoffCtrl, AppLocalizations.of(context).dropoffPoint,
+                                AppLocalizations.of(context).searchDropoffLocation, Icons.location_on, Colors.red),
+                          ),
+                        ),
                         SizedBox(height: 10),
                         Row(
                           children: [
@@ -2036,6 +2075,45 @@ class _BookRideTabState extends State<BookRideTab> {
                               ],
                             ),
                           ),
+                        SizedBox(height: 12),
+                        // Passenger count stepper
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.people, color: Colors.blue.shade600, size: 18),
+                              SizedBox(width: 10),
+                              Text(AppLocalizations.of(context).passengers,
+                                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+                              Spacer(),
+                              IconButton(
+                                icon: Icon(Icons.remove_circle_outline, color: Colors.blue.shade700),
+                                onPressed: _passengerCount > 1
+                                    ? () => setState(() => _passengerCount--)
+                                    : null,
+                                padding: EdgeInsets.zero,
+                                constraints: BoxConstraints(),
+                              ),
+                              Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 12),
+                                child: Text('$_passengerCount',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.add_circle_outline, color: Colors.blue.shade700),
+                                onPressed: _passengerCount < 20
+                                    ? () => setState(() => _passengerCount++)
+                                    : null,
+                                padding: EdgeInsets.zero,
+                                constraints: BoxConstraints(),
+                              ),
+                            ],
+                          ),
+                        ),
                         SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,
@@ -2045,8 +2123,7 @@ class _BookRideTabState extends State<BookRideTab> {
                               if (_pickupCtrl.text.trim().isEmpty ||
                                   _dropoffCtrl.text.trim().isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                    content: Text(
-                                        'Please enter pickup and drop-off locations')));
+                                    content: Text(AppLocalizations.of(context).enterPickupDropoff)));
                                 return;
                               }
                               final homeState = context
@@ -2067,6 +2144,7 @@ class _BookRideTabState extends State<BookRideTab> {
                                             scheduledAt: _scheduledAt?.toIso8601String(),
                                             feluccaFare: _feluccaFareAmt ?? 0.0,
                                             hantourFare: _hantourFareAmt ?? 0.0,
+                                            passengerCount: _passengerCount,
                                           )));
                             },
                             style: ElevatedButton.styleFrom(
@@ -2116,6 +2194,115 @@ class _BookRideTabState extends State<BookRideTab> {
   }
 }
 
+// ===== LOCATION SEARCH SCREEN =====
+class LocationSearchScreen extends StatefulWidget {
+  final String title;
+  const LocationSearchScreen({required this.title, Key? key}) : super(key: key);
+  @override
+  _LocationSearchScreenState createState() => _LocationSearchScreenState();
+}
+
+class _LocationSearchScreenState extends State<LocationSearchScreen> {
+  final _ctrl = TextEditingController();
+  final _focus = FocusNode();
+  List<GeoSuggestion> _results = [];
+  bool _searching = false;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.requestFocus();
+    _ctrl.addListener(_onChanged);
+  }
+
+  void _onChanged() {
+    _debounce?.cancel();
+    final text = _ctrl.text.trim();
+    if (text.length < 2) {
+      setState(() { _results = []; _searching = false; });
+      return;
+    }
+    setState(() => _searching = true);
+    _debounce = Timer(const Duration(milliseconds: 450), () async {
+      final list = await GeocodingService.searchEgypt(text);
+      if (mounted) setState(() { _results = list; _searching = false; });
+    });
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _ctrl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(64),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: TextField(
+              controller: _ctrl,
+              focusNode: _focus,
+              decoration: InputDecoration(
+                hintText: l.typeToSearch,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searching
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(width: 20, height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2)))
+                    : _ctrl.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () => _ctrl.clear())
+                        : null,
+              ),
+            ),
+          ),
+        ),
+        backgroundColor: Colors.teal.shade700,
+        foregroundColor: Colors.white,
+      ),
+      body: _results.isEmpty
+          ? Center(
+              child: Text(
+                _ctrl.text.trim().length < 2
+                    ? l.typeToSearch
+                    : (_searching ? l.searchingPlaces : l.noResultsFound),
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+              ),
+            )
+          : ListView.separated(
+              itemCount: _results.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final s = _results[i];
+                return ListTile(
+                  leading: Icon(Icons.location_on, color: Colors.red.shade400),
+                  title: Text(s.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  onTap: () => Navigator.pop(context, s),
+                );
+              },
+            ),
+    );
+  }
+}
+
 // ===== 7. VEHICLE SELECT SCREEN =====
 class VehicleSelectScreen extends StatefulWidget {
   final String pickup;
@@ -2130,6 +2317,7 @@ class VehicleSelectScreen extends StatefulWidget {
   final String? scheduledAt;
   final double feluccaFare;
   final double hantourFare;
+  final int passengerCount;
 
   VehicleSelectScreen({
     required this.pickup,
@@ -2144,6 +2332,7 @@ class VehicleSelectScreen extends StatefulWidget {
     this.scheduledAt,
     this.feluccaFare = 0.0,
     this.hantourFare = 0.0,
+    this.passengerCount = 1,
   });
 
   @override
@@ -2384,6 +2573,7 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
                           dropoffLat: widget.dropoffLat,
                           dropoffLng: widget.dropoffLng,
                           scheduledAt: widget.scheduledAt,
+                          passengerCount: widget.passengerCount,
                         ),
                       ),
                     );
@@ -2482,7 +2672,7 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: isFelucca
-                          ? Text('50–120 EGP',
+                          ? Text('250–650 EGP',
                               style: TextStyle(color: tagColor, fontWeight: FontWeight.bold, fontSize: 13))
                           : Text('${fare.toStringAsFixed(0)} EGP',
                               style: TextStyle(color: tagColor, fontWeight: FontWeight.bold, fontSize: 13)),
@@ -2508,7 +2698,7 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
 
   Widget _buildFeluccaDurationPicker() {
     final durations = [15, 30, 60];
-    final fares = [50.0, 80.0, 120.0];
+    final fares = [250.0, 350.0, 650.0];
     final labels = ['15 min', '30 min', '1 hr'];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2614,12 +2804,12 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
 }
 
 /// Returns the minimum session fare for the vehicle type.
-/// Felucca: 50 EGP (≤15 min), Horse Carriage: 30 EGP (≤500 m).
+/// Felucca: 250 EGP (≤15 min), Horse Carriage: 30 EGP (≤500 m).
 /// Surge is applied on top.
 double _fareForType(String type) {
   final isFelucca = type == 'Felucca';
   final surge = isFelucca ? FareEstimator.feluccaSurge : FareEstimator.hantourSurge;
-  final base = isFelucca ? 50.0 : 30.0; // minimum session fare
+  final base = isFelucca ? 250.0 : 30.0; // minimum session fare
   return double.parse((base * surge).toStringAsFixed(0));
 }
 
@@ -2636,6 +2826,7 @@ class PaymentScreen extends StatefulWidget {
   final double? dropoffLat;
   final double? dropoffLng;
   final String? scheduledAt;
+  final int passengerCount;
 
   PaymentScreen({
     required this.vehicleId,
@@ -2649,6 +2840,7 @@ class PaymentScreen extends StatefulWidget {
     this.dropoffLat,
     this.dropoffLng,
     this.scheduledAt,
+    this.passengerCount = 1,
   });
 
   @override
@@ -2998,6 +3190,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         dropoffLat: widget.dropoffLat,
                         dropoffLng: widget.dropoffLng,
                         scheduledAt: widget.scheduledAt,
+                        passengerCount: widget.passengerCount,
                       ),
                     ),
                   );
@@ -3835,6 +4028,7 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
           final counterFare = (data['counterFare'] as num?)?.toDouble();
           final negotiationStatus = data['negotiationStatus'] as String? ?? 'open';
           if (negotiationStatus == 'countered' && counterFare != null && counterFare > 0) {
+            if (!_counterPending) SoundService.playCounterOffer(); // new counter-offer
             setState(() {
               _counterFare = counterFare;
               _counterPending = true;
@@ -5313,7 +5507,7 @@ class _ProfileTabState extends State<ProfileTab> {
   void _showFAQ(BuildContext context) {
     final faqs = [
       ('How do I book a felucca?', 'Tap "Book a Ride" on the home screen, choose Felucca as vehicle type, pick your pickup and dropoff, then confirm booking.'),
-      ('How is the fare calculated?', 'Felucca fares are time-based. Up to 15 min: 50 EGP, up to 30 min: 80 EGP, up to 60 min: 120 EGP. Horse carriage fares are distance-based.'),
+      ('How is the fare calculated?', 'Felucca fares are time-based. Up to 15 min: 250 EGP, up to 30 min: 350 EGP, up to 60 min: 650 EGP. Horse carriage fares are distance-based.'),
       ('How do I pay?', 'You can pay in cash, credit card, or mobile wallet (InstaPay). Select your preferred method before confirming.'),
       ('Can I cancel a trip?', 'Yes, tap "Cancel" on the searching or booking screen and select a reason.'),
       ('How do I share my ride?', 'Tap the Share icon on the active ride screen to send your ride details to a contact.'),
@@ -5859,6 +6053,8 @@ class SearchingDriverScreen extends StatefulWidget {
   final double? dropoffLng;
   final String? scheduledAt;
 
+  final int passengerCount;
+
   const SearchingDriverScreen({
     required this.pickup, required this.dropoff,
     required this.vehicleType, required this.driver,
@@ -5866,6 +6062,7 @@ class SearchingDriverScreen extends StatefulWidget {
     this.proposedFare = 0,
     this.pickupLat, this.pickupLng, this.dropoffLat, this.dropoffLng,
     this.scheduledAt,
+    this.passengerCount = 1,
   });
   @override
   _SearchingDriverScreenState createState() => _SearchingDriverScreenState();
@@ -5938,6 +6135,7 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
         dropoffLat: widget.dropoffLat,
         dropoffLng: widget.dropoffLng,
         scheduledAt: widget.scheduledAt,
+        passengerCount: widget.passengerCount,
       );
       _tripId = trip.id;
 
@@ -5964,9 +6162,12 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
           .snapshots()
           .listen((snap) {
         if (!mounted) return;
-        setState(() {
-          _driverOffers = snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
-        });
+        final newOffers = snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+        // Play sound when count increases (new driver offer arrived)
+        if (newOffers.length > _driverOffers.length) {
+          SoundService.playDriverOffer();
+        }
+        setState(() => _driverOffers = newOffers);
       }, onError: (_) {});
 
       // Polling fallback

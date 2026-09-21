@@ -104,6 +104,14 @@ class DriverLocationService {
     }
   }
 
+  /// Immediately push a known position to Firebase — called from the active
+  /// ride screen on every GPS update so tracking works even if the background
+  /// timer hasn't fired yet or wasn't started.
+  static void broadcastPosition(String driverId, double lat, double lng) {
+    _lastPosition = null; // ensure next timer tick also re-broadcasts
+    _broadcastToFirebase(driverId, lat, lng);
+  }
+
   /// Call when driver goes offline or the app closes.
   static void stopBroadcasting(String driverId) {
     _broadcastTimer?.cancel();
@@ -235,14 +243,14 @@ class FareEstimator {
           ? durationMinutes
           : (distanceKm / 0.083); // ~5 km/h on water fallback
       if (mins <= 15) {
-        base = 50.0; description = 'Up to 15 min';
+        base = 250.0; description = 'Up to 15 min';
       } else if (mins <= 30) {
-        base = 80.0; description = 'Up to 30 min';
+        base = 350.0; description = 'Up to 30 min';
       } else if (mins <= 60) {
-        base = 120.0; description = 'Up to 60 min';
+        base = 650.0; description = 'Up to 60 min';
       } else {
-        base = 150.0;
-        variable = (mins - 60) * 2.0;
+        base = 650.0;
+        variable = (mins - 60) * 9.0;
         description = '${mins.round()} min';
       }
       unit = 'min';

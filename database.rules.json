@@ -1,0 +1,11 @@
+{
+  "rules": {
+    "drivers_location": {
+      "$driverId": {
+        // Driver can write their own location; any authenticated user can read
+        ".write": "auth != null && auth.uid == $driverId",
+        ".read":  "auth != null"
+      }
+    }
+  }
+}

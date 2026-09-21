@@ -74,7 +74,13 @@ class AppLocalizations {
   String get date              => _t('Date', 'التاريخ');
   String get findRides         => _t('Find Rides', 'ابحث عن سيارات');
   String get myLocation        => _t('My Location', 'موقعي');
-  String get findingRoute      => _t('Finding route...', 'جاري البحث عن المسار...');
+  String get findingRoute          => _t('Finding route...', 'جاري البحث عن المسار...');
+  String get searchPickupLocation  => _t('Search pickup location', 'ابحث عن نقطة الانطلاق');
+  String get searchDropoffLocation => _t('Search drop-off location', 'ابحث عن نقطة الوصول');
+  String get typeToSearch          => _t('Type to search any place...', 'اكتب للبحث عن أي مكان...');
+  String get noResultsFound        => _t('No results found', 'لا توجد نتائج');
+  String get searchingPlaces       => _t('Searching...', 'جاري البحث...');
+  String get enterPickupDropoff    => _t('Please enter pickup and drop-off locations', 'يرجى إدخال نقطتَي الانطلاق والوصول');
 
   // ── Vehicle & Booking ─────────────────────────────────────────────────────
   String get selectVehicle     => _t('Select Vehicle', 'اختر المركبة');
@@ -126,6 +132,9 @@ class AppLocalizations {
   String get wallet            => _t('Wallet', 'المحفظة');
   String get balance           => _t('Balance', 'الرصيد');
   String get topUp             => _t('Top Up', 'إضافة رصيد');
+
+  // ── Passenger Count ───────────────────────────────────────────────────────
+  String get passengers        => _t('Passengers', 'الركاب');
 }
 
 class _AppLocalizationsDelegate

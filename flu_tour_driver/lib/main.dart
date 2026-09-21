@@ -23,6 +23,7 @@ import 'route_service.dart';
 import 'package:provider/provider.dart';
 import 'app_localizations.dart';
 import 'locale_provider.dart';
+import 'sound_service.dart';
 
 // Must be a top-level function — called when app is in background/terminated
 @pragma('vm:entry-point')
@@ -433,13 +434,11 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
         .animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
     _controller.forward();
 
-    // Wait for Firebase Auth to restore session, then navigate
-    Future.delayed(Duration(seconds: 3), () async {
+    // Firebase.initializeApp() in main() has already restored the persisted
+    // credential — currentUser is synchronously available here.
+    Future.delayed(Duration(seconds: 3), () {
       if (!mounted) return;
-      // authStateChanges emits the current user (or null) immediately once
-      // Firebase Auth finishes restoring the persisted credential.
-      final user = await FirebaseAuth.instance.authStateChanges().first;
-      if (!mounted) return;
+      final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (_) => DriverHomeScreen()));
@@ -493,30 +492,27 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
                                 size: 70, color: Colors.white),
                           ),
                           SizedBox(height: 28),
-                          Builder(builder: (context) {
-                            final l = AppLocalizations.of(context);
-                            return Column(
-                              children: [
-                                Text(
-                                  l.driverAppTitle,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 36,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1,
-                                  ),
+                          Column(
+                            children: [
+                              Text(
+                                'FluTour Driver',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1,
                                 ),
-                                SizedBox(height: 8),
-                                Text(
-                                  l.yourRideEarnings,
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 16,
-                                  ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Your ride, your earnings',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 16,
                                 ),
-                              ],
-                            );
-                          }),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -539,14 +535,14 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    child: Builder(builder: (context) => Text(
-                      AppLocalizations.of(context).getStarted,
+                    child: Text(
+                      'Get Started',
                       style: TextStyle(
                         color: Color(0xFF004D40),
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
-                    )),
+                    ),
                   ),
                 ),
               ),
@@ -1704,6 +1700,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                   'amount': (data['agreedFare'] as num?)?.toDouble() ?? (data['fare'] as num?)?.toDouble() ?? 0.0,
                   'proposedFare': (data['proposedFare'] as num?)?.toDouble() ?? 0.0,
                   'payment': data['paymentMethod'] ?? 'cash',
+                  'passengerCount': (data['passengerCount'] as num?)?.toInt() ?? 1,
                   'time': 'Just now',
                 };
               }).toList());
@@ -1712,11 +1709,12 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
   void initState() {
     super.initState();
     _statsFuture = _loadStats();
-    // Show a SnackBar when a trip-request FCM notification arrives in the foreground
+    // Show a SnackBar + play sound when a trip-request FCM notification arrives in the foreground
     _fcmSub = FirebaseMessaging.onMessage.listen((message) {
       if (!mounted) return;
       final type = message.data['type'] ?? '';
       if (type == 'trip_request' || message.notification != null) {
+        SoundService.playTripRequest();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message.notification?.body ?? 'New trip request!'),
@@ -1742,6 +1740,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
         final doc = unhandled.last; // .last = most recently created
         _handledTripIds.add(doc.id);
         _navigatedToActiveRide = true;
+        SoundService.playOfferAccepted();
         final data = doc.data();
         Navigator.push(
           context,
@@ -1760,6 +1759,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
               'payment': data['paymentMethod'] ?? 'cash',
               'vehicleType': data['vehicleType'] ?? '',
               'passengerPhone': data['passengerPhone'] ?? '',
+              'passengerCount': (data['passengerCount'] as num?)?.toInt() ?? 1,
               'time': 'Just now',
             }),
           ),
@@ -2272,11 +2272,26 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
   late final Stream<List<Map<String, dynamic>>> _stream;
   String? _streamError;
   final Set<String> _acceptingIds = {};
+  final Set<String> _knownRequestIds = {};
+  StreamSubscription? _soundSub;
   // _driverDeclinedTripIds is the shared top-level set used across all tabs
 
   @override
   void initState() {
     super.initState();
+    // Separate subscription just for sound — plays once per NEW trip ID
+    _soundSub = FirebaseFirestore.instance
+        .collection('trips')
+        .where('status', isEqualTo: 'requested')
+        .snapshots()
+        .listen((snap) {
+      final incoming = snap.docs.map((d) => d.id).toSet();
+      final newIds = incoming.difference(_knownRequestIds);
+      if (_knownRequestIds.isNotEmpty && newIds.isNotEmpty) {
+        SoundService.playTripRequest();
+      }
+      _knownRequestIds.addAll(incoming);
+    });
     _stream = FirebaseFirestore.instance
         .collection('trips')
         .where('status', isEqualTo: 'requested')
@@ -2314,9 +2329,16 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                 'amount': (data['fare'] as num?)?.toDouble() ?? 0.0,
                 'proposedFare': (data['proposedFare'] as num?)?.toDouble() ?? 0.0,
                 'payment': data['paymentMethod'] ?? 'cash',
+                'passengerCount': (data['passengerCount'] as num?)?.toInt() ?? 1,
                 'time': 'Just now',
               };
             }).toList());
+  }
+
+  @override
+  void dispose() {
+    _soundSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -2669,14 +2691,26 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
   @override
   void initState() {
     super.initState();
+    final driverId = DriverAuthService.currentDriverId;
+    // Ensure broadcasting is running — it may not have started if GPS failed
+    // at the online-toggle step, or if the driver resumed from a previous session.
+    if (!DriverLocationService.isBroadcasting) {
+      DriverLocationService.startBroadcasting(
+        driverId,
+        driverName: DriverAuthService.currentDriverName,
+        isOnTrip: true,
+      );
+    } else {
+      DriverLocationService.updateOnTripStatus(driverId, true);
+    }
     _startTracking();
-    final tripId = widget.request['id'] as String? ?? '';
   }
 
   void _startTracking() async {
     final perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied ||
         perm == LocationPermission.deniedForever) return;
+    final driverId = DriverAuthService.currentDriverId;
     // Get current position immediately so route shows without waiting for stream
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -2686,6 +2720,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
       setState(() => _driverPos = loc);
       _mapCtrl.move(loc, 15.5);
       _fetchAndSetRoute();
+      // Push to Firebase immediately — don't wait for the 3-second timer
+      DriverLocationService.broadcastPosition(driverId, pos.latitude, pos.longitude);
     } catch (_) {}
     _posStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
@@ -2698,6 +2734,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
       setState(() => _driverPos = loc);
       _mapCtrl.move(loc, 15.5);
       _fetchAndSetRoute();
+      // Keep Firebase in sync on every movement
+      DriverLocationService.broadcastPosition(driverId, pos.latitude, pos.longitude);
     });
   }
 
@@ -2772,7 +2810,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
         // Step 3: show earnings and go back to dashboard
         if (!mounted) return;
         final fare = (widget.request['amount'] as num?)?.toDouble() ?? 0.0;
-        final earning = fare * 0.85;
+        final earning = fare * 0.80;
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -3193,9 +3231,31 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(widget.request['passenger'],
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 15)),
+                          Row(
+                            children: [
+                              Text(widget.request['passenger'],
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold, fontSize: 15)),
+                              SizedBox(width: 8),
+                              Container(
+                                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.purple.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.purple.shade200),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.people, size: 12, color: Colors.purple.shade700),
+                                    SizedBox(width: 3),
+                                    Text('${widget.request['passengerCount'] ?? 1}',
+                                        style: TextStyle(fontSize: 11, color: Colors.purple.shade700, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                           Text(
                               '${widget.request['pickup']} → ${widget.request['dropoff']}',
                               style: TextStyle(
@@ -4490,6 +4550,7 @@ class _TripRequestNotificationScreenState
   @override
   void initState() {
     super.initState();
+    SoundService.playTripRequest(); // alert driver a new request just arrived
     _countdown = Timer.periodic(Duration(seconds: 1), (t) {
       if (!mounted) { t.cancel(); return; }
       if (_seconds <= 1) {
@@ -4698,6 +4759,8 @@ class _TripRequestNotificationScreenState
                     _reqRow(Icons.trip_origin, Colors.green, '${req['pickup']} → ${req['dropoff']}'),
                     SizedBox(height: 8),
                     _reqRow(Icons.route, Colors.blue, '${req['distance']} · ${req['duration']}'),
+                    SizedBox(height: 8),
+                    _reqRow(Icons.people, Colors.purple, '${l.passengers}: ${req['passengerCount'] ?? 1}'),
                     SizedBox(height: 8),
                     _reqRow(Icons.access_time, Colors.grey, '${req['time']} · ${req['payment']}'),
                     SizedBox(height: 12),
