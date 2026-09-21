@@ -42,6 +42,8 @@ void main() async {
   } catch (_) {}
   FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
   await DriverAuthService.loadSession();
+  final prefs = await SharedPreferences.getInstance();
+  _driverDeclinedTripIds.addAll(prefs.getStringList('declined_trips') ?? []);
   final localeProvider = await LocaleProvider.load(defaultLocale: const Locale('ar'));
   runApp(
     ChangeNotifierProvider.value(
@@ -51,8 +53,15 @@ void main() async {
   );
 }
 
-/// Shared declined-trip IDs — persists for the app's lifetime across all tabs and screens.
+/// Shared declined-trip IDs — persists across app restarts via SharedPreferences.
 final Set<String> _driverDeclinedTripIds = {};
+
+void _declineTrip(String tripId) {
+  _driverDeclinedTripIds.add(tripId);
+  SharedPreferences.getInstance().then((prefs) {
+    prefs.setStringList('declined_trips', _driverDeclinedTripIds.toList());
+  });
+}
 
 class FluTourDriverApp extends StatelessWidget {
   @override
@@ -530,11 +539,12 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
         .animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
     _controller.forward();
 
-    // Firebase.initializeApp() in main() has already restored the persisted
-    // credential — currentUser is synchronously available here.
-    Future.delayed(Duration(seconds: 3), () {
+    Future.delayed(Duration(seconds: 2), () async {
       if (!mounted) return;
-      final user = FirebaseAuth.instance.currentUser;
+      // authStateChanges().first waits for Firebase Auth to fully restore
+      // the persisted session from Keychain before deciding which screen to show.
+      final user = await FirebaseAuth.instance.authStateChanges().first;
+      if (!mounted) return;
       if (user != null) {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (_) => DriverHomeScreen()));
@@ -850,7 +860,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                   },
                   icon: _googleLoading
                       ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                      : Icon(Icons.g_mobiledata, size: 26, color: Colors.red.shade700),
+                      : Image.asset('assets/icons/google_logo.png', width: 22, height: 22),
                   label: Text(AppLocalizations.of(context).continueWithGoogle,
                       style: TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w600)),
                   style: OutlinedButton.styleFrom(
@@ -1782,6 +1792,8 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
   final LatLng _luxor = LatLng(25.6872, 32.6396);
   StreamSubscription<RemoteMessage>? _fcmSub;
   StreamSubscription<QuerySnapshot>? _acceptedTripSub;
+  StreamSubscription<QuerySnapshot>? _soundSub; // moved here so it's always active
+  final Set<String> _soundKnownIds = {};
   bool _navigatedToActiveRide = false;
   final Set<String> _handledTripIds = {}; // prevents re-navigating to same trip
   late Future<Map<String, dynamic>> _statsFuture;
@@ -1840,7 +1852,20 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
   void initState() {
     super.initState();
     _statsFuture = _loadStats();
-    // Show a SnackBar + play sound when a trip-request FCM notification arrives in the foreground
+    // Firestore-based sound: plays whenever a new trip appears, regardless of active tab
+    _soundSub = FirebaseFirestore.instance
+        .collection('trips')
+        .where('status', isEqualTo: 'requested')
+        .snapshots()
+        .listen((snap) {
+      final incoming = snap.docs.map((d) => d.id).toSet();
+      final newIds = incoming.difference(_soundKnownIds);
+      if (_soundKnownIds.isNotEmpty && newIds.isNotEmpty) {
+        SoundService.playTripRequest();
+      }
+      _soundKnownIds.addAll(incoming);
+    });
+    // FCM foreground sound + SnackBar
     _fcmSub = FirebaseMessaging.onMessage.listen((message) {
       if (!mounted) return;
       final type = message.data['type'] ?? '';
@@ -1905,6 +1930,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
   void dispose() {
     _fcmSub?.cancel();
     _acceptedTripSub?.cancel();
+    _soundSub?.cancel();
     super.dispose();
   }
 
@@ -1918,7 +1944,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
           children: [
             Icon(Icons.sailing, color: Colors.teal.shade700, size: 22),
             SizedBox(width: 8),
-            Text(l.driverAppTitle),
+            Text('FluTour Driver'),
           ],
         ),
         centerTitle: true,
@@ -2342,7 +2368,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                   onPressed: () {
                     final tripId = req['id'] as String? ?? '';
                     if (tripId.isEmpty) return;
-                    setState(() => _driverDeclinedTripIds.add(tripId));
+                    setState(() => _declineTrip(tripId));
                     final uid = DriverAuthService.currentDriverId;
                     if (uid.isNotEmpty) {
                       DriverDatabaseService.instance
@@ -2410,19 +2436,7 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
   @override
   void initState() {
     super.initState();
-    // Separate subscription just for sound — plays once per NEW trip ID
-    _soundSub = FirebaseFirestore.instance
-        .collection('trips')
-        .where('status', isEqualTo: 'requested')
-        .snapshots()
-        .listen((snap) {
-      final incoming = snap.docs.map((d) => d.id).toSet();
-      final newIds = incoming.difference(_knownRequestIds);
-      if (_knownRequestIds.isNotEmpty && newIds.isNotEmpty) {
-        SoundService.playTripRequest();
-      }
-      _knownRequestIds.addAll(incoming);
-    });
+    // Sound is handled in DriverDashboardTab — no duplicate listener needed here
     _stream = FirebaseFirestore.instance
         .collection('trips')
         .where('status', isEqualTo: 'requested')
@@ -2618,7 +2632,7 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                   onPressed: () {
                     final tripId = req['id'] as String;
                     final driverUid = DriverAuthService.currentDriverId;
-                    setState(() => _driverDeclinedTripIds.add(tripId));
+                    setState(() => _declineTrip(tripId));
                     if (driverUid.isNotEmpty) {
                       DriverDatabaseService.instance
                           .withdrawOffer(tripId, driverUid)
@@ -4797,7 +4811,7 @@ class _TripRequestNotificationScreenState
     _countdown?.cancel();
     final tripId = widget.request['id'] as String? ?? '';
     if (tripId.isNotEmpty) {
-      _driverDeclinedTripIds.add(tripId);
+      _declineTrip(tripId);
       final uid = DriverAuthService.currentDriverId;
       if (uid.isNotEmpty) {
         DriverDatabaseService.instance
