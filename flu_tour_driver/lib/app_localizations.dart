@@ -208,6 +208,135 @@ class AppLocalizations {
   String get sendMessage       => _t('Send', 'إرسال');
   String get typeMessage       => _t('Type a message...', 'اكتب رسالة...');
   String get chat              => _t('Chat', 'محادثة');
+
+  // ── Splash ────────────────────────────────────────────────────────────────
+  String get driverAppTitle    => _t('FluTour Driver', 'فلوتور - سائق');
+
+  // ── Google Sign-In ────────────────────────────────────────────────────────
+  String get continueWithGoogle => _t('Continue with Google', 'المتابعة بواسطة Google');
+  String get signedInWithGoogle => _t('Signed in with Google', 'تم الدخول بواسطة Google');
+
+  // ── Registration ──────────────────────────────────────────────────────────
+  String get addProfilePhoto    => _t('Add profile photo', 'إضافة صورة الملف الشخصي');
+  String get vehiclePhoto       => _t('Vehicle Photo', 'صورة المركبة');
+  String get vehiclePhotoHint   => _t('Photo of your felucca or carriage (shown to passengers)', 'صورة فلوكتك أو عربتك (تُعرض للركاب)');
+  String get tapToAddVehiclePhoto => _t('Tap to add vehicle photo', 'اضغط لإضافة صورة المركبة');
+  String get optionalRecommended => _t('(optional but recommended)', '(اختياري لكن مُوصى به)');
+  String get driverLicensePhoto => _t('Driver License Photo', 'صورة رخصة القيادة');
+  String get licensePhotoHint   => _t('Required for admin approval — front side of license', 'مطلوب لموافقة الإدارة — الوجه الأمامي للرخصة');
+  String get tapToAddLicensePhoto => _t('Tap to upload license photo', 'اضغط لتحميل صورة الرخصة');
+  String get licensePhotoRequired => _t('(required — admin will review before approval)', '(مطلوب — الإدارة ستراجع قبل الموافقة)');
+  String get createPasswordHint => _t('Create a password (min 6 characters)', 'أنشئ كلمة مرور (6 أحرف على الأقل)');
+  String get reenterPasswordHint => _t('Re-enter your password', 'أعد إدخال كلمة المرور');
+  String get passwordsDoNotMatch => _t('Passwords do not match', 'كلمات المرور غير متطابقة');
+  String get photosUploadFailed => _t('Photos failed to upload — update them from your profile later.', 'فشل تحميل الصور — يمكنك تحديثها من ملفك الشخصي لاحقاً.');
+  String get applicationSubmitted => _t('Application Submitted!', 'تم تقديم الطلب!');
+  String pendingApprovalBody(String name) => isArabic
+      ? 'مرحباً $name، طلبك قيد المراجعة.\n\nستتم الموافقة على حسابك خلال 1-2 أيام عمل. ستتلقى إشعاراً عند الموافقة.'
+      : 'Hi $name, your registration is under review.\n\nAdmin will approve your account within 1–2 business days. You\'ll be notified once approved.';
+  String get pendingDocsReady   => _t('Have your licence and insurance documents ready. Admin may contact you for verification.', 'احرص على توفر رخصتك ووثائق التأمين. قد تتصل بك الإدارة للتحقق.');
+  String get backToLogin        => _t('Back to Login', 'العودة لتسجيل الدخول');
+
+  // ── Bottom Nav ────────────────────────────────────────────────────────────
+  String get navRequests        => _t('Requests', 'الطلبات');
+
+  // ── Dashboard ─────────────────────────────────────────────────────────────
+  String get tapToGoOffline     => _t('Tap to go offline', 'اضغط للتوقف عن العمل');
+  String get tapToStartAccepting => _t('Tap to start accepting rides', 'اضغط لبدء قبول الرحلات');
+  String get todaySummary       => _t("Today's Summary", 'ملخص اليوم');
+  String get tripsToday         => _t('Trips Today', 'رحلات اليوم');
+  String get earnedToday        => _t('Earned Today', 'ربح اليوم');
+  String get rating             => _t('Rating', 'التقييم');
+
+  // ── Offers ────────────────────────────────────────────────────────────────
+  String get makeOffer          => _t('Make Offer', 'تقديم عرض');
+  String get sendFareOffer      => _t('Send Fare Offer', 'إرسال عرض السعر');
+  String get passengerOffered   => _t('Passenger offered:', 'عرض الراكب:');
+  String get yourFareOffer      => _t('Your fare offer (EGP):', 'عرضك للسعر (ج.م):');
+  String get enterYourFare      => _t('Enter your fare', 'أدخل سعرك');
+  String get passengerWillChoose => _t('Passenger will choose from driver offers', 'سيختار الراكب من عروض السائقين');
+  String get sendOffer          => _t('Send Offer', 'إرسال العرض');
+  String get offerSent          => _t('Offer sent! Waiting for passenger to accept.', 'تم إرسال العرض! في انتظار موافقة الراكب.');
+  String get offerSentWaiting   => _t('Offer sent! Waiting for passenger to choose.', 'تم إرسال العرض! في انتظار اختيار الراكب.');
+  String get failedToSendOffer  => _t('Failed to send offer', 'فشل إرسال العرض');
+
+  // ── Error / Status ────────────────────────────────────────────────────────
+  String get couldNotLoadRequests => _t('Could not load requests', 'تعذر تحميل الطلبات');
+  String get couldNotLoadHistory  => _t('Could not load trip history', 'تعذر تحميل سجل الرحلات');
+  String get couldNotLoadEarnings => _t('Could not load earnings', 'تعذر تحميل الأرباح');
+  String get couldNotLoadProfile  => _t('Could not load profile', 'تعذر تحميل الملف الشخصي');
+  String get updateFailed         => _t('Update failed', 'فشل التحديث');
+
+  // ── Active Ride ───────────────────────────────────────────────────────────
+  String get refuseTrip         => _t('Refuse Trip?', 'رفض الرحلة؟');
+  String get refuseTripConfirm  => _t('Are you sure you want to refuse this trip? It will be cancelled and the passenger will be notified.', 'هل أنت متأكد من رفض هذه الرحلة؟ ستُلغى وسيتم إخطار الراكب.');
+  String get no                 => _t('No', 'لا');
+  String get yesRefuse          => _t('Yes, Refuse', 'نعم، رفض');
+  String get selectReason       => _t('Select a reason:', 'اختر سبباً:');
+  String get reasonPassengerNotFound => _t('Passenger not found', 'الراكب غير موجود');
+  String get reasonVehicleIssue => _t('Vehicle issue', 'مشكلة في المركبة');
+  String get reasonEmergency    => _t('Emergency', 'طارئ');
+  String get reasonPassengerRequest => _t('Passenger request', 'طلب الراكب');
+  String get reasonOther        => _t('Other', 'أخرى');
+  String get completeTrip       => _t('Complete Trip', 'إنهاء الرحلة');
+  String get paymentReceivedComplete => _t('Payment Received — Complete Trip', 'تم استلام الدفع — إنهاء الرحلة');
+  String get doneBackToHome     => _t('Done — Back to Home', 'تم — العودة للرئيسية');
+  String get leaveComment       => _t('Leave a comment (optional)', 'اترك تعليقاً (اختياري)');
+  String get skip               => _t('Skip', 'تخطي');
+
+  // ── Earnings ──────────────────────────────────────────────────────────────
+  String get vehicle            => _t('Vehicle', 'المركبة');
+  String get todayTripsLabel    => _t('Today\nTrips', 'رحلات\nاليوم');
+  String get todayEarnedLabel   => _t('Today\nEarned', 'ربح\nاليوم');
+  String get noEarningsToWithdraw => _t('No earnings to withdraw.', 'لا يوجد رصيد للسحب.');
+  String get instapayMissing    => _t('InstaPay number missing', 'رقم إنستاباي مفقود');
+  String get instapayMissingBody => _t('You have not set your InstaPay number yet.\n\nGo to your Profile tab and add your InstaPay number to enable withdrawals.', 'لم تقم بإعداد رقم إنستاباي بعد.\n\nاذهب إلى تبويب الملف الشخصي وأضف رقم إنستاباي لتفعيل السحب.');
+  String get withdrawViaInstapay => _t('Withdraw via InstaPay', 'السحب عبر إنستاباي');
+  String get amountLabel        => _t('Amount:', 'المبلغ:');
+  String get willBeSentTo       => _t('Will be sent to:', 'سيُرسل إلى:');
+  String get instapayTransferNote => _t('The admin will transfer your earnings to this InstaPay number within 24 hours.', 'ستحول الإدارة أرباحك إلى رقم إنستاباي هذا خلال 24 ساعة.');
+  String get confirmWithdrawal  => _t('Confirm Withdrawal', 'تأكيد السحب');
+  String get withdrawalSubmitted => _t('Withdrawal request submitted. You will be paid via InstaPay within 24 hours.', 'تم تقديم طلب السحب. ستحصل على أرباحك عبر إنستاباي خلال 24 ساعة.');
+  String get failedToSubmitRequest => _t('Failed to submit request. Please try again.', 'فشل تقديم الطلب. يرجى المحاولة مرة أخرى.');
+  String get cashCommission     => _t('Cash Trip Commission (15%)', 'عمولة الرحلات النقدية (15%)');
+  String get cashCommissionNote => _t('For cash trips, please send 15% of each fare to admin via InstaPay:', 'للرحلات النقدية، يرجى إرسال 15% من كل أجرة إلى الإدارة عبر إنستاباي:');
+  String get recentWithdrawals  => _t('Recent Withdrawal Requests', 'طلبات السحب الأخيرة');
+  String get paid               => _t('Paid', 'مدفوع');
+  String get pendingStatus      => _t('Pending', 'معلق');
+
+  // ── Profile ───────────────────────────────────────────────────────────────
+  String get photoUpdated       => _t('Photo updated!', 'تم تحديث الصورة!');
+  String get failedToSave       => _t('Failed to save. Try again.', 'فشل الحفظ. حاول مرة أخرى.');
+  String get instapayNote       => _t('Passengers will send payment to this number', 'سيرسل الركاب الدفع إلى هذا الرقم');
+  String get account            => _t('Account', 'الحساب');
+  String get changePassword     => _t('Change Password', 'تغيير كلمة المرور');
+  String get fullName           => _t('Full Name', 'الاسم الكامل');
+  String get currentPassword    => _t('Current Password', 'كلمة المرور الحالية');
+  String get newPasswordLabel   => _t('New Password (min 6 chars)', 'كلمة المرور الجديدة (6 أحرف على الأقل)');
+  String get updateBtn          => _t('Update', 'تحديث');
+  String get passwordUpdated    => _t('Password updated!', 'تم تحديث كلمة المرور!');
+  String get wrongCurrentPassword => _t('Current password is incorrect', 'كلمة المرور الحالية غير صحيحة');
+  String get driverSupportTeam  => _t('Driver support team', 'فريق دعم السائقين');
+
+  // ── Trip Request Notification ─────────────────────────────────────────────
+  String get requestTimedOut    => _t('Request timed out — auto declined', 'انتهت مهلة الطلب — تم الرفض تلقائياً');
+  String get failedToSubmitOffer => _t('Failed to submit offer. Please try again.', 'فشل تقديم العرض. يرجى المحاولة مرة أخرى.');
+  String get requestDeclined    => _t('Request declined', 'تم رفض الطلب');
+  String get suggestYourFare    => _t('Suggest Your Fare', 'اقترح سعرك');
+  String get enterFareOffer     => _t('Enter your fare offer (EGP):', 'أدخل عرض سعرك (ج.م):');
+  String get expiringSoon       => _t('Expiring soon!', 'تنتهي قريباً!');
+  String get secondsRemaining   => _t('Seconds remaining', 'ثوانٍ متبقية');
+  String get passengerOffer     => _t('Passenger Offer', 'عرض الراكب');
+  String get counterOffer       => _t('Counter', 'عرض مضاد');
+  String get egpFare            => _t('EGP (fare)', 'جنيه (الأجرة)');
+  String get egpAfterCommission => _t('EGP (after 20% commission)', 'جنيه (بعد عمولة 20٪)');
+  String get day6Ago            => _t('6d', '6أ');
+  String get day5Ago            => _t('5d', '5أ');
+  String get day4Ago            => _t('4d', '4أ');
+  String get day3Ago            => _t('3d', '3أ');
+  String get day2Ago            => _t('2d', '2أ');
+  String get yesterday          => _t('Yest', 'أمس');
+  String get today              => _t('Today', 'اليوم');
 }
 
 class _AppLocalizationsDelegate
