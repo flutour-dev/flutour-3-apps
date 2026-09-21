@@ -2667,14 +2667,26 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
   @override
   void initState() {
     super.initState();
+    final driverId = DriverAuthService.currentDriverId;
+    // Ensure broadcasting is running — it may not have started if GPS failed
+    // at the online-toggle step, or if the driver resumed from a previous session.
+    if (!DriverLocationService.isBroadcasting) {
+      DriverLocationService.startBroadcasting(
+        driverId,
+        driverName: DriverAuthService.currentDriverName,
+        isOnTrip: true,
+      );
+    } else {
+      DriverLocationService.updateOnTripStatus(driverId, true);
+    }
     _startTracking();
-    final tripId = widget.request['id'] as String? ?? '';
   }
 
   void _startTracking() async {
     final perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied ||
         perm == LocationPermission.deniedForever) return;
+    final driverId = DriverAuthService.currentDriverId;
     // Get current position immediately so route shows without waiting for stream
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -2684,6 +2696,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
       setState(() => _driverPos = loc);
       _mapCtrl.move(loc, 15.5);
       _fetchAndSetRoute();
+      // Push to Firebase immediately — don't wait for the 3-second timer
+      DriverLocationService.broadcastPosition(driverId, pos.latitude, pos.longitude);
     } catch (_) {}
     _posStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
@@ -2696,6 +2710,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
       setState(() => _driverPos = loc);
       _mapCtrl.move(loc, 15.5);
       _fetchAndSetRoute();
+      // Keep Firebase in sync on every movement
+      DriverLocationService.broadcastPosition(driverId, pos.latitude, pos.longitude);
     });
   }
 

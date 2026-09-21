@@ -104,6 +104,14 @@ class DriverLocationService {
     }
   }
 
+  /// Immediately push a known position to Firebase — called from the active
+  /// ride screen on every GPS update so tracking works even if the background
+  /// timer hasn't fired yet or wasn't started.
+  static void broadcastPosition(String driverId, double lat, double lng) {
+    _lastPosition = null; // ensure next timer tick also re-broadcasts
+    _broadcastToFirebase(driverId, lat, lng);
+  }
+
   /// Call when driver goes offline or the app closes.
   static void stopBroadcasting(String driverId) {
     _broadcastTimer?.cancel();
