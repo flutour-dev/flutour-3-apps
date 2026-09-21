@@ -23,6 +23,7 @@ import 'route_service.dart';
 import 'package:provider/provider.dart';
 import 'app_localizations.dart';
 import 'locale_provider.dart';
+import 'sound_service.dart';
 
 // Must be a top-level function — called when app is in background/terminated
 @pragma('vm:entry-point')
@@ -1710,11 +1711,12 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
   void initState() {
     super.initState();
     _statsFuture = _loadStats();
-    // Show a SnackBar when a trip-request FCM notification arrives in the foreground
+    // Show a SnackBar + play sound when a trip-request FCM notification arrives in the foreground
     _fcmSub = FirebaseMessaging.onMessage.listen((message) {
       if (!mounted) return;
       final type = message.data['type'] ?? '';
       if (type == 'trip_request' || message.notification != null) {
+        SoundService.playTripRequest();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message.notification?.body ?? 'New trip request!'),
@@ -1740,6 +1742,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
         final doc = unhandled.last; // .last = most recently created
         _handledTripIds.add(doc.id);
         _navigatedToActiveRide = true;
+        SoundService.playOfferAccepted();
         final data = doc.data();
         Navigator.push(
           context,
@@ -2270,11 +2273,26 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
   late final Stream<List<Map<String, dynamic>>> _stream;
   String? _streamError;
   final Set<String> _acceptingIds = {};
+  final Set<String> _knownRequestIds = {};
+  StreamSubscription? _soundSub;
   // _driverDeclinedTripIds is the shared top-level set used across all tabs
 
   @override
   void initState() {
     super.initState();
+    // Separate subscription just for sound — plays once per NEW trip ID
+    _soundSub = FirebaseFirestore.instance
+        .collection('trips')
+        .where('status', isEqualTo: 'requested')
+        .snapshots()
+        .listen((snap) {
+      final incoming = snap.docs.map((d) => d.id).toSet();
+      final newIds = incoming.difference(_knownRequestIds);
+      if (_knownRequestIds.isNotEmpty && newIds.isNotEmpty) {
+        SoundService.playTripRequest();
+      }
+      _knownRequestIds.addAll(incoming);
+    });
     _stream = FirebaseFirestore.instance
         .collection('trips')
         .where('status', isEqualTo: 'requested')
@@ -2315,6 +2333,12 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                 'time': 'Just now',
               };
             }).toList());
+  }
+
+  @override
+  void dispose() {
+    _soundSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -4504,6 +4528,7 @@ class _TripRequestNotificationScreenState
   @override
   void initState() {
     super.initState();
+    SoundService.playTripRequest(); // alert driver a new request just arrived
     _countdown = Timer.periodic(Duration(seconds: 1), (t) {
       if (!mounted) { t.cancel(); return; }
       if (_seconds <= 1) {

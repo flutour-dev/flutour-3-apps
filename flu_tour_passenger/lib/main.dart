@@ -19,6 +19,7 @@ import 'models.dart';
 import 'database_service.dart';
 import 'location_service.dart';
 import 'route_service.dart';
+import 'sound_service.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -3980,6 +3981,7 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
           final counterFare = (data['counterFare'] as num?)?.toDouble();
           final negotiationStatus = data['negotiationStatus'] as String? ?? 'open';
           if (negotiationStatus == 'countered' && counterFare != null && counterFare > 0) {
+            if (!_counterPending) SoundService.playCounterOffer(); // new counter-offer
             setState(() {
               _counterFare = counterFare;
               _counterPending = true;
@@ -6109,9 +6111,12 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
           .snapshots()
           .listen((snap) {
         if (!mounted) return;
-        setState(() {
-          _driverOffers = snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
-        });
+        final newOffers = snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+        // Play sound when count increases (new driver offer arrived)
+        if (newOffers.length > _driverOffers.length) {
+          SoundService.playDriverOffer();
+        }
+        setState(() => _driverOffers = newOffers);
       }, onError: (_) {});
 
       // Polling fallback
