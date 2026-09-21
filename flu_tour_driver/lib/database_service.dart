@@ -1,6 +1,5 @@
 // lib/database_service.dart — FluTour Driver App
-// Firestore-ready data layer with mock data
-// TODO: Replace mock implementations with Firestore calls when Google account is recovered
+// Firestore data layer — all reads/writes go to Firebase project flutour-3fc69
 //
 // Firestore indexes needed (add in Firebase Console):
 //   trips: driverId ASC, createdAt DESC
@@ -25,12 +24,14 @@ class DriverDatabaseService {
       uid: uid,
       name: d['name'] ?? '',
       phone: d['phone'] ?? '',
+      instapayPhone: d['instapayPhone'] ?? '',
       vehicleId: d['vehicleId'] ?? '',
       vehicleType: VehicleTypeX.fromString(d['vehicleType'] ?? 'felucca'),
       status: DriverStatusX.fromString(d['status'] ?? 'pending'),
       rating: (d['rating'] as num?)?.toDouble() ?? 0.0,
       totalTrips: d['totalTrips'] ?? 0,
       balance: (d['balance'] as num?)?.toDouble() ?? 0.0,
+      photoUrl: d['photoUrl'] as String?,
       createdAt: (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
   }
@@ -39,12 +40,16 @@ class DriverDatabaseService {
     await _db.collection('drivers').doc(driver.uid).set({
       'name': driver.name,
       'phone': driver.phone,
+      'instapayPhone': driver.instapayPhone,
       'vehicleId': driver.vehicleId,
       'vehicleType': driver.vehicleType.value,
       'status': 'pending',
       'rating': 0.0,
       'totalTrips': 0,
       'balance': 0.0,
+      'vehiclePhotoUrl': '',
+      'photoUrl': '',
+      'licensePhotoUrl': '',
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -93,18 +98,59 @@ class DriverDatabaseService {
     }).toList();
   }
 
-  Future<void> acceptTrip(String tripId, String driverId, String driverName) async {
+  Future<void> acceptTrip(String tripId, String driverId, String driverName, {String? instapayPhone, String? driverPhone}) async {
     await _db.collection('trips').doc(tripId).update({
       'status': 'accepted',
       'driverId': driverId,
       'driverName': driverName,
       'acceptedAt': FieldValue.serverTimestamp(),
+      'driverInstapayPhone': instapayPhone ?? '',
+      if (driverPhone != null && driverPhone.isNotEmpty) 'driverPhone': driverPhone,
+    });
+  }
+
+  Future<void> submitDriverOffer({
+    required String tripId,
+    required String driverUid,
+    required String driverName,
+    required String driverPhone,
+    required String instapayPhone,
+    required String photoUrl,
+    required double rating,
+    required double suggestedFare,
+    required String vehicleType,
+  }) async {
+    await _db
+        .collection('trips')
+        .doc(tripId)
+        .collection('offers')
+        .doc(driverUid)
+        .set({
+      'driverUid': driverUid,
+      'driverName': driverName,
+      'driverPhone': driverPhone,
+      'instapayPhone': instapayPhone,
+      'photoUrl': photoUrl,
+      'rating': rating,
+      'suggestedFare': suggestedFare,
+      'vehicleType': vehicleType,
+      'status': 'pending',
+      'offeredAt': FieldValue.serverTimestamp(),
     });
   }
 
   Future<void> declineTrip(String tripId) async {
     // Re-queue the trip for another driver
     await _db.collection('trips').doc(tripId).update({'status': 'requested', 'driverId': ''});
+  }
+
+  Future<void> cancelTripByDriver(String tripId, String reason) async {
+    await _db.collection('trips').doc(tripId).update({
+      'status': 'cancelled',
+      'cancelledBy': 'driver',
+      'cancellationReason': reason,
+      'cancelledAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<void> arriveTrip(String tripId) async {
@@ -154,7 +200,7 @@ class DriverDatabaseService {
         vehicleType: VehicleTypeX.fromString(data['vehicleType'] ?? 'felucca'),
         pickup: data['pickup'] ?? '',
         dropoff: data['dropoff'] ?? '',
-        fare: (data['fare'] as num?)?.toDouble() ?? 0.0,
+        fare: ((data['agreedFare'] ?? data['fare']) as num?)?.toDouble() ?? 0.0,
         paymentMethod: PaymentMethodX.fromString(data['paymentMethod'] ?? 'cash'),
         status: TripStatusX.fromString(data['status'] ?? 'completed'),
         createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
@@ -167,9 +213,12 @@ class DriverDatabaseService {
     final snap = await _db
         .collection('trips')
         .where('driverId', isEqualTo: uid)
-        .where('status', isEqualTo: 'completed')
         .get();
-    final trips = snap.docs.map((d) => d.data()).toList();
+    // Filter completed in Dart — avoids composite index requirement
+    final trips = snap.docs
+        .map((d) => d.data())
+        .where((t) => (t['status'] as String?) == 'completed')
+        .toList();
     final now = DateTime.now();
     final today = trips.where((t) {
       final dt = (t['completedAt'] as Timestamp?)?.toDate();
@@ -186,7 +235,7 @@ class DriverDatabaseService {
       return dt != null && dt.isAfter(monthAgo);
     }).toList();
     double sum(List<Map<String, dynamic>> list) =>
-        list.fold(0.0, (s, t) => s + ((t['fare'] as num?)?.toDouble() ?? 0.0) * 0.85);
+        list.fold(0.0, (s, t) => s + (((t['agreedFare'] ?? t['fare']) as num?)?.toDouble() ?? 0.0) * 0.85);
     return EarningsSummary(
       today: sum(today),
       thisWeek: sum(week),
@@ -194,6 +243,37 @@ class DriverDatabaseService {
       tripsToday: today.length,
       tripsThisWeek: week.length,
     );
+  }
+
+  /// Returns earnings per day for the last 7 days, index 0 = oldest day.
+  Future<List<double>> getDailyEarnings(String uid) async {
+    final now = DateTime.now();
+    final sevenDaysAgo = DateTime(now.year, now.month, now.day).subtract(Duration(days: 6));
+    final snap = await _db
+        .collection('trips')
+        .where('driverId', isEqualTo: uid)
+        .get();
+    final daily = List<double>.filled(7, 0.0);
+    for (final doc in snap.docs) {
+      if ((doc.data()['status'] as String?) != 'completed') continue;
+      final dt = (doc.data()['completedAt'] as Timestamp?)?.toDate();
+      if (dt == null || dt.isBefore(sevenDaysAgo)) continue;
+      final dayIndex = dt.difference(sevenDaysAgo).inDays;
+      if (dayIndex >= 0 && dayIndex < 7) {
+        final fare = ((doc.data()['agreedFare'] ?? doc.data()['fare']) as num?)?.toDouble() ?? 0.0;
+        daily[dayIndex] += fare * 0.85;
+      }
+    }
+    return daily;
+  }
+
+  Future<void> withdrawOffer(String tripId, String driverUid) async {
+    await _db
+        .collection('trips')
+        .doc(tripId)
+        .collection('offers')
+        .doc(driverUid)
+        .delete();
   }
 
   Future<void> submitRating(String driverUid, int rating, String comment) async {

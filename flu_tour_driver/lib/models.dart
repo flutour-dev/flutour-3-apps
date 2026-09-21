@@ -1,6 +1,5 @@
 // lib/models.dart — FluTour Driver App
-// Firestore-ready data models
-// TODO: Connect toMap()/fromMap() to Firestore when Google account is recovered
+// Data models — used with Firestore project flutour-3fc69
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 
@@ -114,6 +113,7 @@ class DriverModel {
   final String uid;
   final String name;
   final String phone;
+  final String instapayPhone; // InstaPay-linked phone number (can be same as phone)
   final String vehicleId;
   final VehicleType vehicleType;
   final DriverStatus status;
@@ -123,12 +123,14 @@ class DriverModel {
   final bool isOnline;
   final double? latitude;
   final double? longitude;
+  final String? photoUrl;
   final DateTime createdAt;
 
   DriverModel({
     required this.uid,
     required this.name,
     required this.phone,
+    this.instapayPhone = '',
     required this.vehicleId,
     required this.vehicleType,
     this.status = DriverStatus.pending,
@@ -138,14 +140,15 @@ class DriverModel {
     this.isOnline = false,
     this.latitude,
     this.longitude,
+    this.photoUrl,
     required this.createdAt,
   });
 
-  // TODO: Use with FirebaseFirestore.instance.collection('drivers').doc(uid).set(toMap())
   Map<String, dynamic> toMap() => {
     'uid': uid,
     'name': name,
     'phone': phone,
+    'instapayPhone': instapayPhone,
     'vehicleId': vehicleId,
     'vehicleType': vehicleType.value,
     'status': status.value,
@@ -155,6 +158,7 @@ class DriverModel {
     'isOnline': isOnline,
     'latitude': latitude,
     'longitude': longitude,
+    'photoUrl': photoUrl,
     'createdAt': createdAt.toIso8601String(),
   };
 
@@ -162,6 +166,7 @@ class DriverModel {
     uid: m['uid'] ?? '',
     name: m['name'] ?? '',
     phone: m['phone'] ?? '',
+    instapayPhone: m['instapayPhone'] ?? '',
     vehicleId: m['vehicleId'] ?? '',
     vehicleType: VehicleTypeX.fromString(m['vehicleType'] ?? 'felucca'),
     status: DriverStatusX.fromString(m['status'] ?? 'pending'),
@@ -171,12 +176,14 @@ class DriverModel {
     isOnline: m['isOnline'] ?? false,
     latitude: m['latitude']?.toDouble(),
     longitude: m['longitude']?.toDouble(),
+    photoUrl: m['photoUrl'] as String?,
     createdAt: DateTime.tryParse(m['createdAt'] ?? '') ?? DateTime.now(),
   );
 
   DriverModel copyWith({
     bool? isOnline, double? latitude, double? longitude,
     double? balance, int? totalTrips, double? rating, DriverStatus? status,
+    String? photoUrl,
   }) => DriverModel(
     uid: uid, name: name, phone: phone, vehicleId: vehicleId,
     vehicleType: vehicleType,
@@ -187,6 +194,7 @@ class DriverModel {
     isOnline: isOnline ?? this.isOnline,
     latitude: latitude ?? this.latitude,
     longitude: longitude ?? this.longitude,
+    photoUrl: photoUrl ?? this.photoUrl,
     createdAt: createdAt,
   );
 }

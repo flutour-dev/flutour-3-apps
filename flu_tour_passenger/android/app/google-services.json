@@ -51,6 +51,22 @@
       },
       "oauth_client": [
         {
+          "client_id": "258397191065-gev7vtilju1uiosnrd3p5a87lacnfjk9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.flutour.driver",
+            "certificate_hash": "49f50f5575fe0f1c805ce03446f9f27ef7033ab7"
+          }
+        },
+        {
+          "client_id": "258397191065-o5tarf7f850mlnb61rrn4p617chdob6p.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.flutour.driver",
+            "certificate_hash": "7af6d65ab57ff7301571a5b82ca08ca7fe8f06b2"
+          }
+        },
+        {
           "client_id": "258397191065-u3e7drp1o8eft55ekjhlquf033p5qica.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -86,6 +102,22 @@
         }
       },
       "oauth_client": [
+        {
+          "client_id": "258397191065-a6d70ujmbshg771f1pa2rcli93pbo3no.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.flutour.passenger",
+            "certificate_hash": "7af6d65ab57ff7301571a5b82ca08ca7fe8f06b2"
+          }
+        },
+        {
+          "client_id": "258397191065-efnnehunrsjpfpkud9k0pfmt5liklkpt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.flutour.passenger",
+            "certificate_hash": "5c7979e7c31bb97caf037d70b4d10ac14ceb75bf"
+          }
+        },
         {
           "client_id": "258397191065-u3e7drp1o8eft55ekjhlquf033p5qica.apps.googleusercontent.com",
           "client_type": 3

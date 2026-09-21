@@ -31,12 +31,13 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCqcvs9fmoSpv1PSdtAVyHgK54kGUPFC4I',
-    appId: '1:258397191065:android:648201ce64ac08342a7108',
+    apiKey: 'AIzaSyA_Y1sLVHmNwswr2hPtK7EhjjG3e80zAHs',
+    appId: '1:258397191065:ios:cecafb994e4725ce2a7108',
     messagingSenderId: '258397191065',
     projectId: 'flutour-3fc69',
     databaseURL: 'https://flutour-3fc69-default-rtdb.firebaseio.com',
     storageBucket: 'flutour-3fc69.firebasestorage.app',
+    iosClientId: '258397191065-usppb664m2hdb5acaa6ob8klb6ec1mb4.apps.googleusercontent.com',
     iosBundleId: 'com.flutour.driver',
   );
 }

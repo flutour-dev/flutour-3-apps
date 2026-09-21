@@ -1,6 +1,5 @@
 // lib/database_service.dart — FluTour Passenger App
-// Firestore-ready data layer with mock data
-// TODO: Replace mock implementations with Firestore calls when Google account is recovered
+// Firestore data layer — all reads/writes go to Firebase project flutour-3fc69
 //
 // Firestore indexes needed (add in Firebase Console):
 //   trips: passengerId ASC, createdAt DESC
@@ -81,6 +80,11 @@ class DatabaseService {
     required String dropoff,
     required double fare,
     required PaymentMethod paymentMethod,
+    double? pickupLat,
+    double? pickupLng,
+    double? dropoffLat,
+    double? dropoffLng,
+    String? scheduledAt,
   }) async {
     final ref = await _db.collection('trips').add({
       'passengerId': passengerId,
@@ -92,9 +96,18 @@ class DatabaseService {
       'pickup': pickup,
       'dropoff': dropoff,
       'fare': fare,
+      'proposedFare': fare,
+      'counterFare': null,
+      'negotiationStatus': 'open',
       'paymentMethod': paymentMethod.value,
       'status': 'requested',
       'createdAt': FieldValue.serverTimestamp(),
+      if (pickupLat != null) 'pickupLat': pickupLat,
+      if (pickupLng != null) 'pickupLng': pickupLng,
+      if (dropoffLat != null) 'dropoffLat': dropoffLat,
+      if (dropoffLng != null) 'dropoffLng': dropoffLng,
+      if (scheduledAt != null) 'scheduledAt': scheduledAt,
+      if (scheduledAt != null) 'isScheduled': true,
     });
     return TripModel(
       id: ref.id,
@@ -113,13 +126,40 @@ class DatabaseService {
     );
   }
 
-  Future<void> cancelTrip(String tripId) async {
-    await _db.collection('trips').doc(tripId).update({'status': 'cancelled'});
+  Future<void> cancelTrip(String tripId,
+      {String reason = '', String cancelledBy = 'passenger'}) async {
+    await _db.collection('trips').doc(tripId).update({
+      'status': 'cancelled',
+      'cancelledBy': cancelledBy,
+      'cancellationReason': reason,
+      'cancelledAt': FieldValue.serverTimestamp(),
+    });
   }
 
-  Future<void> rateTrip(String tripId, int rating) async {
-    await _db.collection('trips').doc(tripId)
-        .update({'passengerRating': rating});
+  Future<void> acceptDriverOffer({
+    required String tripId,
+    required String driverUid,
+    required String driverName,
+    required String driverPhone,
+    required String instapayPhone,
+    required double agreedFare,
+  }) async {
+    await _db.collection('trips').doc(tripId).update({
+      'status': 'accepted',
+      'driverId': driverUid,
+      'driverName': driverName,
+      'driverPhone': driverPhone,
+      'driverInstapayPhone': instapayPhone,
+      'agreedFare': agreedFare,
+      'acceptedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> rateTrip(String tripId, int rating, {String? comment}) async {
+    await _db.collection('trips').doc(tripId).update({
+      'passengerRating': rating,
+      if (comment != null && comment.isNotEmpty) 'passengerComment': comment,
+    });
   }
 
   Future<List<NotificationModel>> getNotifications(String uid) async {

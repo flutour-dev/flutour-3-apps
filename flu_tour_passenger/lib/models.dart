@@ -1,6 +1,5 @@
 // lib/models.dart — FluTour Passenger App
-// Firestore-ready data models
-// TODO: Connect toMap()/fromMap() to Firestore when Google account is recovered
+// Data models — used with Firestore project flutour-3fc69
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 
@@ -101,7 +100,6 @@ class UserModel {
     required this.createdAt,
   });
 
-  // TODO: Use with FirebaseFirestore.instance.collection('users').doc(uid).set(toMap())
   Map<String, dynamic> toMap() => {
     'uid': uid,
     'name': name,
@@ -111,7 +109,6 @@ class UserModel {
     'createdAt': createdAt.toIso8601String(),
   };
 
-  // TODO: Use with snapshot.data() from Firestore
   factory UserModel.fromMap(Map<String, dynamic> m) => UserModel(
     uid: m['uid'] ?? '',
     name: m['name'] ?? '',
@@ -168,7 +165,6 @@ class TripModel {
     this.completedAt,
   });
 
-  // TODO: Use with trips collection in Firestore
   Map<String, dynamic> toMap() => {
     'id': id,
     'passengerId': passengerId,

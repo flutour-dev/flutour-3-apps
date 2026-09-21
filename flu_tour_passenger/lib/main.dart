@@ -1,18 +1,35 @@
 // lib/main.dart - FluTour Passenger App
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui' as ui;
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 import 'models.dart';
 import 'database_service.dart';
 import 'location_service.dart';
+import 'route_service.dart';
+import 'package:provider/provider.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'app_localizations.dart';
+import 'locale_provider.dart';
 
 // Must be a top-level function — called when app is in background/terminated
 @pragma('vm:entry-point')
@@ -29,17 +46,26 @@ void main() async {
     );
   } catch (_) {}
   FirebaseMessaging.onBackgroundMessage(_fcmBackgroundHandler);
-  // Load persisted login session before UI renders
   await AuthService.loadSession();
-  runApp(FluTourPassengerApp());
+  final localeProvider = await LocaleProvider.load(defaultLocale: const Locale('en'));
+  runApp(
+    ChangeNotifierProvider.value(
+      value: localeProvider,
+      child: FluTourPassengerApp(),
+    ),
+  );
 }
 
 class FluTourPassengerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final localeProvider = context.watch<LocaleProvider>();
     return MaterialApp(
-      title: 'FluTour Passenger',
+      title: 'FluTour',
       debugShowCheckedModeBanner: false,
+      locale: localeProvider.locale,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: ThemeData(
         primarySwatch: Colors.blue,
         scaffoldBackgroundColor: Color(0xFFF4F6FA),
@@ -63,6 +89,7 @@ class FluTourPassengerApp extends StatelessWidget {
 class AuthService {
   static String _currentUserName = '';
   static String _currentUserPhone = '';
+  static String _currentPhotoUrl = '';
   static String _tempPassword = '';
 
   static bool get isLoggedIn => FirebaseAuth.instance.currentUser != null;
@@ -70,21 +97,67 @@ class AuthService {
       FirebaseAuth.instance.currentUser?.uid ?? '';
   static String get currentUserName => _currentUserName;
   static String get currentUserPhone => _currentUserPhone;
+  static String get currentPhotoUrl => _currentPhotoUrl;
 
   static Future<void> loadSession() async {
     final prefs = await SharedPreferences.getInstance();
     _currentUserName = prefs.getString('passenger_name') ?? '';
     _currentUserPhone = prefs.getString('passenger_phone') ?? '';
+    _currentPhotoUrl = prefs.getString('passenger_photo') ?? '';
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null && _currentUserName.isEmpty) {
+    if (user != null) {
       try {
         final doc = await FirebaseFirestore.instance
             .collection('users').doc(user.uid).get();
-        _currentUserName = doc.data()?['name'] ?? '';
-        _currentUserPhone = doc.data()?['phone'] ?? '';
-        await prefs.setString('passenger_name', _currentUserName);
-        await prefs.setString('passenger_phone', _currentUserPhone);
+        if (doc.exists) {
+          _currentUserName = doc.data()?['name'] ?? _currentUserName;
+          _currentUserPhone = doc.data()?['phone'] ?? _currentUserPhone;
+          _currentPhotoUrl = doc.data()?['photoUrl'] ?? user.photoURL ?? _currentPhotoUrl;
+          await prefs.setString('passenger_name', _currentUserName);
+          await prefs.setString('passenger_phone', _currentUserPhone);
+          await prefs.setString('passenger_photo', _currentPhotoUrl);
+        }
       } catch (_) {}
+    }
+    // Load live surge multipliers from Firestore
+    await FareEstimator.loadSurge();
+  }
+
+  // imgBB free image hosting — same key as driver app (api.imgbb.com)
+  static const _imgBBKey = 'aebd7e4dd66c443fcdb4da6cff88cf9d';
+
+  static Future<String?> _uploadToImgBB(File file) async {
+    final bytes = await file.readAsBytes();
+    final b64 = base64Encode(bytes);
+    final resp = await http.post(
+      Uri.parse('https://api.imgbb.com/1/upload'),
+      body: {'key': _imgBBKey, 'image': b64},
+    );
+    if (resp.statusCode != 200) return null;
+    final json = jsonDecode(resp.body) as Map<String, dynamic>;
+    if (json['success'] == true) {
+      return (json['data'] as Map<String, dynamic>)['url'] as String?;
+    }
+    return null;
+  }
+
+  /// Pick photo from gallery, upload to imgBB, save URL to Firestore.
+  static Future<String?> uploadProfilePhoto() async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+      if (picked == null) return null;
+      final uid = currentUserId;
+      if (uid.isEmpty) return 'Not logged in';
+      final url = await _uploadToImgBB(File(picked.path));
+      if (url == null) return 'Failed to upload photo';
+      _currentPhotoUrl = url;
+      await FirebaseFirestore.instance.collection('users').doc(uid).update({'photoUrl': url});
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('passenger_photo', url);
+      return null;
+    } catch (e) {
+      return 'Failed to upload photo: $e';
     }
   }
 
@@ -99,9 +172,11 @@ class AuthService {
       final doc = await FirebaseFirestore.instance
           .collection('users').doc(cred.user!.uid).get();
       _currentUserName = doc.data()?['name'] ?? 'Passenger';
+      _currentPhotoUrl = doc.data()?['photoUrl'] ?? '';
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('passenger_name', _currentUserName);
       await prefs.setString('passenger_phone', _currentUserPhone);
+      await prefs.setString('passenger_photo', _currentPhotoUrl);
       return null;
     } on FirebaseAuthException catch (e) {
       if (e.code == 'user-not-found') return 'No account found for this phone number';
@@ -112,45 +187,80 @@ class AuthService {
     }
   }
 
-  static Future<String?> register(String name, String phone, String password) async {
+  static Future<String?> register(String name, String phone, String password,
+      {String nationality = ''}) async {
     if (name.isEmpty || phone.isEmpty || password.length < 6)
       return 'Password must be at least 6 characters';
-    _currentUserName = name;
-    _currentUserPhone = phone;
-    _tempPassword = password;
-    return null;
-  }
-
-  static String _lastOtpError = '';
-  static String get lastOtpError => _lastOtpError;
-
-  static Future<bool> verifyOtp(String otp) async {
-    // Accept any 6-digit code — OTP is simulated (no real SMS gateway yet)
-    if (otp.length < 6) return false;
     try {
       final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: _phoneToEmail(_currentUserPhone), password: _tempPassword);
-      _tempPassword = '';
-      _lastOtpError = '';
+          email: _phoneToEmail(phone), password: password);
+      _currentUserName = name;
+      _currentUserPhone = phone.trim();
       await FirebaseFirestore.instance
           .collection('users').doc(cred.user!.uid).set({
         'name': _currentUserName,
         'phone': _currentUserPhone,
+        'nationality': nationality,
         'role': 'passenger',
+        'totalRides': 0,
         'createdAt': FieldValue.serverTimestamp(),
       });
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('passenger_name', _currentUserName);
       await prefs.setString('passenger_phone', _currentUserPhone);
-      return true;
+      return null;
     } on FirebaseAuthException catch (e) {
-      _tempPassword = '';
-      _lastOtpError = e.message ?? e.code;
-      return false;
+      if (e.code == 'email-already-in-use') return 'An account already exists for this phone number';
+      if (e.code == 'weak-password') return 'Password must be at least 6 characters';
+      return e.message ?? 'Registration failed';
+    } catch (_) {
+      return 'Registration failed. Please check your connection.';
+    }
+  }
+
+  static Future<String?> signInWithGoogle() async {
+    try {
+      final googleUser = await GoogleSignIn(
+        serverClientId: '258397191065-u3e7drp1o8eft55ekjhlquf033p5qica.apps.googleusercontent.com',
+      ).signIn();
+      if (googleUser == null) return 'Google sign-in cancelled';
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      final cred = await FirebaseAuth.instance.signInWithCredential(credential);
+      final uid = cred.user!.uid;
+      // Load or create Firestore user doc
+      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final googlePhoto = cred.user?.photoURL ?? googleUser.photoUrl ?? '';
+      if (!doc.exists) {
+        _currentUserName = cred.user?.displayName ?? googleUser.displayName ?? 'Passenger';
+        _currentUserPhone = cred.user?.phoneNumber ?? '';
+        _currentPhotoUrl = googlePhoto;
+        await FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'name': _currentUserName,
+          'phone': _currentUserPhone,
+          'nationality': '',
+          'photoUrl': _currentPhotoUrl,
+          'role': 'passenger',
+          'totalRides': 0,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        _currentUserName = doc.data()?['name'] ?? cred.user?.displayName ?? 'Passenger';
+        _currentUserPhone = doc.data()?['phone'] ?? '';
+        _currentPhotoUrl = doc.data()?['photoUrl'] ?? googlePhoto;
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('passenger_name', _currentUserName);
+      await prefs.setString('passenger_phone', _currentUserPhone);
+      await prefs.setString('passenger_photo', _currentPhotoUrl);
+      return null;
+    } on FirebaseAuthException catch (e) {
+      return e.message ?? 'Google sign-in failed';
     } catch (e) {
-      _tempPassword = '';
-      _lastOtpError = e.toString();
-      return false;
+      return 'Google sign-in failed: $e';
     }
   }
 
@@ -161,6 +271,91 @@ class AuthService {
       return null;
     } on FirebaseAuthException catch (e) {
       return e.message ?? 'Failed to send reset';
+    }
+  }
+
+  // ── Phone OTP verification ────────────────────────────────────────────────
+  static String _lastVerificationId = '';
+
+  /// Formats Egyptian phone (01XXXXXXXXX → +201XXXXXXXXX) and sends OTP via Firebase.
+  static Future<String?> sendPhoneOtp(String phone) async {
+    String formatted = phone.trim();
+    if (formatted.startsWith('0')) {
+      formatted = '+20${formatted.substring(1)}';
+    } else if (!formatted.startsWith('+')) {
+      formatted = '+20$formatted';
+    }
+    try {
+      final completer = Completer<String?>();
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: formatted,
+        verificationCompleted: (_) {
+          if (!completer.isCompleted) completer.complete(null);
+        },
+        verificationFailed: (e) {
+          if (!completer.isCompleted) completer.complete(e.message ?? 'Verification failed');
+        },
+        codeSent: (verificationId, _) {
+          _lastVerificationId = verificationId;
+          if (!completer.isCompleted) completer.complete(null);
+        },
+        codeAutoRetrievalTimeout: (verificationId) {
+          _lastVerificationId = verificationId;
+        },
+        timeout: const Duration(seconds: 60),
+      );
+      return await completer.future;
+    } catch (e) {
+      return 'Failed to send code: $e';
+    }
+  }
+
+  /// Verifies the 6-digit OTP and links phone to the existing account.
+  static Future<String?> verifyOtp(String smsCode) async {
+    if (_lastVerificationId.isEmpty) return 'Session expired. Please resend code.';
+    try {
+      final credential = PhoneAuthProvider.credential(
+          verificationId: _lastVerificationId, smsCode: smsCode);
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        try {
+          await user.linkWithCredential(credential);
+        } on FirebaseAuthException catch (e) {
+          if (e.code != 'provider-already-linked' && e.code != 'credential-already-in-use') {
+            return e.message ?? 'Invalid code';
+          }
+        }
+        await FirebaseFirestore.instance
+            .collection('users').doc(user.uid)
+            .update({'phoneVerified': true});
+      }
+      return null;
+    } on FirebaseAuthException catch (e) {
+      return e.message ?? 'Invalid code';
+    }
+  }
+
+  static void updateCachedProfile({String? name, String? phone}) async {
+    if (name != null && name.isNotEmpty) _currentUserName = name;
+    if (phone != null && phone.isNotEmpty) _currentUserPhone = phone;
+    final prefs = await SharedPreferences.getInstance();
+    if (name != null && name.isNotEmpty) await prefs.setString('passenger_name', name);
+    if (phone != null && phone.isNotEmpty) await prefs.setString('passenger_phone', phone);
+  }
+
+  static Future<String?> changePassword(String currentPassword, String newPassword) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null || user.email == null) return 'Not logged in';
+      final cred = EmailAuthProvider.credential(email: user.email!, password: currentPassword);
+      await user.reauthenticateWithCredential(cred);
+      await user.updatePassword(newPassword);
+      return null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'wrong-password') return 'Current password is incorrect';
+      return e.message ?? 'Failed to change password';
+    } catch (e) {
+      return 'Failed to change password: $e';
     }
   }
 
@@ -199,10 +394,12 @@ class _SplashScreenState extends State<SplashScreen>
     _float = Tween<double>(begin: 0, end: 8).animate(
         CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
     _controller.repeat(reverse: true);
-    Timer(Duration(seconds: 3), () {
+    // Wait for Firebase Auth to restore session, then navigate
+    Future.delayed(Duration(seconds: 3), () async {
       if (!mounted) return;
-      // Navigation guard: skip login if already authenticated
-      if (AuthService.isLoggedIn) {
+      final user = await FirebaseAuth.instance.authStateChanges().first;
+      if (!mounted) return;
+      if (user != null) {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (_) => PassengerHomeScreen()));
       } else {
@@ -317,6 +514,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passCtrl = TextEditingController();
   bool _obscure = true;
   bool _loading = false;
+  bool _googleLoading = false;
 
   @override
   void dispose() {
@@ -359,6 +557,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
@@ -440,13 +639,46 @@ class _LoginScreenState extends State<LoginScreen> {
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14)),
                             ),
-                            child: Text('Sign In',
+                            child: Text(l.signIn,
                                 style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 17,
                                     fontWeight: FontWeight.bold)),
                           ),
                         ),
+                  SizedBox(height: 14),
+                  // ── Google Sign-In ────────────────────────────────────────
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: OutlinedButton.icon(
+                      onPressed: _googleLoading ? null : () async {
+                        setState(() => _googleLoading = true);
+                        final error = await AuthService.signInWithGoogle();
+                        if (!mounted) return;
+                        setState(() => _googleLoading = false);
+                        if (error != null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(error)));
+                        } else {
+                          Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => PassengerHomeScreen()),
+                              (_) => false);
+                        }
+                      },
+                      icon: _googleLoading
+                          ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Icon(Icons.g_mobiledata, size: 26, color: Colors.red.shade700),
+                      label: Text('Continue with Google',
+                          style: TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w600)),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.grey.shade300),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        backgroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
                   SizedBox(height: 14),
                   Row(children: [
                     Expanded(child: Divider()),
@@ -467,7 +699,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         side: BorderSide(color: Colors.blue.shade700, width: 2),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
-                      child: Text('Create Account',
+                      child: Text(l.createAccount,
                           style: TextStyle(
                               color: Colors.blue.shade700,
                               fontSize: 16,
@@ -513,6 +745,7 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _nameCtrl = TextEditingController();
+  final _nationalityCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _obscure = true;
@@ -521,6 +754,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _nationalityCtrl.dispose();
     _phoneCtrl.dispose();
     _passCtrl.dispose();
     super.dispose();
@@ -528,9 +762,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text('Create Account'),
+        title: Text(l.createAccount),
         centerTitle: true,
         leading: IconButton(
             icon: Icon(Icons.arrow_back),
@@ -551,7 +786,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             SizedBox(height: 8),
             Center(
-              child: Text('Join FluTour',
+              child: Text(l.joinFluTour,
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
             ),
             SizedBox(height: 4),
@@ -563,6 +798,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             SizedBox(height: 32),
             _field('Full Name', 'Ahmed Hassan', Icons.person, _nameCtrl,
                 TextInputType.name),
+            SizedBox(height: 16),
+            _field('Nationality', 'e.g. Egyptian, British...', Icons.flag, _nationalityCtrl,
+                TextInputType.text),
             SizedBox(height: 16),
             _field('Phone Number', '01XXXXXXXXX', Icons.phone, _phoneCtrl,
                 TextInputType.phone),
@@ -603,19 +841,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           return;
                         }
                         setState(() => _loading = true);
-                        // TODO: FirebaseAuth will send OTP to phone number
+                        // Step 1: create account
                         final error = await AuthService.register(
                             _nameCtrl.text.trim(),
                             _phoneCtrl.text.trim(),
-                            _passCtrl.text.trim());
+                            _passCtrl.text.trim(),
+                            nationality: _nationalityCtrl.text.trim());
                         if (!mounted) return;
-                        setState(() => _loading = false);
                         if (error != null) {
+                          setState(() => _loading = false);
                           ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(error)));
+                          return;
+                        }
+                        // Step 2: send OTP for phone verification
+                        final otpError = await AuthService.sendPhoneOtp(_phoneCtrl.text.trim());
+                        if (!mounted) return;
+                        setState(() => _loading = false);
+                        if (otpError != null) {
+                          // OTP send failed — go to home anyway (can verify later)
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Account created! Phone verification skipped: $otpError')));
+                          Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => PassengerHomeScreen()),
+                              (_) => false);
                         } else {
-                          Navigator.push(context, MaterialPageRoute(
-                              builder: (_) => OtpScreen(
+                          // Step 3: navigate to OTP screen
+                          Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => OtpScreen(
                                   phone: _phoneCtrl.text.trim(),
                                   name: _nameCtrl.text.trim())));
                         }
@@ -625,7 +880,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14)),
                       ),
-                      child: Text('Create Account',
+                      child: Text(l.createAccount,
                           style: TextStyle(
                               color: Colors.white,
                               fontSize: 17,
@@ -713,17 +968,30 @@ class _OtpScreenState extends State<OtpScreen> {
       return;
     }
     setState(() => _loading = true);
-    // TODO: Pass real Firebase OTP credential when account is recovered
-    final success = await AuthService.verifyOtp(_otp);
+    final error = await AuthService.verifyOtp(_otp);
     if (!mounted) return;
     setState(() => _loading = false);
-    if (success) {
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Phone verified successfully!')));
       Navigator.pushAndRemoveUntil(context,
           MaterialPageRoute(builder: (_) => PassengerHomeScreen()), (_) => false);
+    }
+  }
+
+  void _resend() async {
+    setState(() => _loading = true);
+    final error = await AuthService.sendPhoneOtp(widget.phone);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
     } else {
-      final err = AuthService.lastOtpError;
+      _startTimer();
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(err.isNotEmpty ? err : 'Registration failed. Try again.')));
+          const SnackBar(content: Text('Code resent!')));
     }
   }
 
@@ -754,7 +1022,7 @@ class _OtpScreenState extends State<OtpScreen> {
             Text('Verification Code',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             SizedBox(height: 8),
-            Text('SMS not enabled yet — enter any 6 digits to continue',
+            Text('Enter the 6-digit verification code sent to your phone',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
             SizedBox(height: 40),
@@ -810,10 +1078,7 @@ class _OtpScreenState extends State<OtpScreen> {
                 ? Text('Resend code in $_resendSeconds seconds',
                     style: TextStyle(color: Colors.grey.shade500))
                 : TextButton(
-                    onPressed: () {
-                      _startTimer();
-                      // TODO: Trigger FirebaseAuth resend OTP
-                    },
+                    onPressed: _loading ? null : _resend,
                     child: Text('Resend Code',
                         style: TextStyle(
                             color: Colors.blue.shade700,
@@ -850,7 +1115,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       return;
     }
     setState(() => _loading = true);
-    // TODO: Connect to FirebaseAuth.instance.sendPasswordResetEmail()
     final error = await AuthService.sendPasswordReset(_phoneCtrl.text.trim());
     if (!mounted) return;
     setState(() { _loading = false; _sent = error == null; });
@@ -1011,10 +1275,10 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         unselectedItemColor: Colors.grey,
         selectedLabelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
         items: [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.sailing), label: 'Book Ride'),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'My Trips'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: AppLocalizations.of(context).tabHome),
+          BottomNavigationBarItem(icon: Icon(Icons.sailing), label: AppLocalizations.of(context).tabBook),
+          BottomNavigationBarItem(icon: Icon(Icons.history), label: AppLocalizations.of(context).tabTrips),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: AppLocalizations.of(context).tabProfile),
         ],
       ),
     );
@@ -1134,12 +1398,14 @@ class HomeTab extends StatelessWidget {
             SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: _rideTypeCard(context, 'Felucca', Icons.sailing,
-                    Colors.blue, 'Traditional Nile boat ride')),
+                Expanded(child: _rideTypeCard(context, 'Felucca',
+                    AppLocalizations.of(context).felucca,
+                    Icons.sailing, Colors.blue, 'Traditional Nile boat ride')),
                 SizedBox(width: 12),
                 Expanded(
-                    child: _rideTypeCard(context, 'Horse Carriage', Icons.directions,
-                        Colors.orange, 'Classic Hantour ride')),
+                    child: _rideTypeCard(context, 'Horse Carriage',
+                        AppLocalizations.of(context).horseCarriage,
+                        Icons.directions, Colors.orange, 'Classic Hantour ride')),
               ],
             ),
             SizedBox(height: 24),
@@ -1233,8 +1499,8 @@ class HomeTab extends StatelessWidget {
     );
   }
 
-  Widget _rideTypeCard(BuildContext context, String type, IconData icon,
-      MaterialColor color, String desc) {
+  Widget _rideTypeCard(BuildContext context, String type, String displayName,
+      IconData icon, MaterialColor color, String desc) {
     return GestureDetector(
       onTap: () {
         final state =
@@ -1263,7 +1529,7 @@ class HomeTab extends StatelessWidget {
               child: Icon(icon, color: color.shade700, size: 28),
             ),
             SizedBox(height: 10),
-            Text(type,
+            Text(displayName,
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
             SizedBox(height: 4),
             Text(desc,
@@ -1274,7 +1540,7 @@ class HomeTab extends StatelessWidget {
               decoration: BoxDecoration(
                   color: color.shade700,
                   borderRadius: BorderRadius.circular(8)),
-              child: Text('Book Now',
+              child: Text(AppLocalizations.of(context).bookNow,
                   style: TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -1359,6 +1625,13 @@ class _BookRideTabState extends State<BookRideTab> {
   LatLng? _destinationLoc;
   bool _locating = false;  // spinner while getting GPS
   String? _fareEstimate;   // shown after both points are set
+  double? _feluccaFareAmt;
+  double? _hantourFareAmt;
+  List<LatLng>? _routePoints;
+  bool _fetchingRoute = false;
+  String? _routeInfo; // "1.2 km · 4 min"
+  DateTime? _scheduledAt;
+  bool get _isScheduled => _scheduledAt != null && _scheduledAt!.isAfter(DateTime.now());
 
   static const _spotCoords = {
     'Luxor Temple':  LatLng(25.6987, 32.6390),
@@ -1411,29 +1684,99 @@ class _BookRideTabState extends State<BookRideTab> {
     }
   }
 
-  void _updateFareEstimate() {
+  Future<void> _updateFareEstimate() async {
     final pickup = _pickupLoc;
     final dest = _destinationLoc;
     if (pickup == null || dest == null) {
-      setState(() => _fareEstimate = null);
+      setState(() { _fareEstimate = null; _routePoints = null; _routeInfo = null; _feluccaFareAmt = null; _hantourFareAmt = null; });
       return;
     }
+    // Haversine distance used for Horse Carriage fare (carriages don't follow car roads)
     final dist = FareEstimator.distanceKm(
         pickup.latitude, pickup.longitude, dest.latitude, dest.longitude);
-    final eta = FareEstimator.etaString(dist);
+    setState(() { _fetchingRoute = true; });
+    final result = await RouteService.fetchRoute(pickup, dest);
+    if (!mounted) return;
+    if (result != null) {
+      final eta = RouteService.etaLabel(result.durationSeconds);
+      final durationMin = result.durationSeconds / 60.0;
+      final feluccaFare = FareEstimator.estimate(result.distanceKm,
+          vehicleType: 'felucca', durationMinutes: durationMin);
+      // Horse carriage uses straight-line (haversine) dist — ORS road distance is too long
+      final hantourFare = FareEstimator.estimate(dist, vehicleType: 'horse_carriage');
+      setState(() {
+        _routePoints = result.points;
+        _routeInfo = '${dist.toStringAsFixed(1)} km · $eta';
+        _feluccaFareAmt = feluccaFare.total;
+        _hantourFareAmt = hantourFare.total;
+        _fareEstimate = 'set';
+        _fetchingRoute = false;
+      });
+    } else {
+      // Fallback to straight-line if ORS fails
+      final eta = FareEstimator.etaString(dist);
+      final feluccaFare = FareEstimator.estimate(dist, vehicleType: 'felucca');
+      final hantourFare = FareEstimator.estimate(dist, vehicleType: 'horse_carriage');
+      setState(() {
+        _routeInfo = null;
+        _feluccaFareAmt = feluccaFare.total;
+        _hantourFareAmt = hantourFare.total;
+        _fareEstimate = 'set';
+        _fetchingRoute = false;
+      });
+    }
+  }
+
+  Future<void> _pickDateTime() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: now.add(Duration(hours: 1)),
+      firstDate: now,
+      lastDate: now.add(Duration(days: 30)),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now.add(Duration(hours: 1))),
+    );
+    if (time == null || !mounted) return;
+    final scheduled = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    if (scheduled.isBefore(now)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Please select a future time')));
+      return;
+    }
     setState(() {
-      // Fixed prices: Felucca 50 EGP · Horse Carriage 80 EGP
-      _fareEstimate = '~${dist.toStringAsFixed(1)} km · EGP 50–80 · $eta';
+      _scheduledAt = scheduled;
+      _dateCtrl.text = '${date.day}/${date.month}/${date.year}';
+      _timeCtrl.text = time.format(context);
+    });
+  }
+
+  void _clearSchedule() {
+    setState(() {
+      _scheduledAt = null;
+      _timeCtrl.text = 'Now';
+      _dateCtrl.text = 'Today';
     });
   }
 
   @override
   void initState() {
     super.initState();
-    _timeCtrl.text = '20:00 PM';
+    _timeCtrl.text = 'Now';
     _dateCtrl.text = 'Today';
     // Location detected only when user taps the pin button — avoids ANR from
     // IndexedStack initialising all tabs simultaneously on home screen load.
+    _dropoffCtrl.addListener(() {
+      final typed = _dropoffCtrl.text.trim();
+      final coords = _spotCoords[typed];
+      if (coords != null && _destinationLoc != coords) {
+        setState(() => _destinationLoc = coords);
+        _updateFareEstimate();
+      }
+    });
   }
 
   @override
@@ -1449,7 +1792,7 @@ class _BookRideTabState extends State<BookRideTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Book a Ride'), centerTitle: true),
+      appBar: AppBar(title: Text(AppLocalizations.of(context).bookARide), centerTitle: true),
       body: Stack(
         children: [
           // Map
@@ -1465,6 +1808,16 @@ class _BookRideTabState extends State<BookRideTab> {
                 urlTemplate: 'https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=rqp9ddE9k50t0V3suet2',
                 userAgentPackageName: 'com.flutour.passenger',
               ),
+              if (_routePoints != null && _routePoints!.length > 1)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _routePoints!,
+                      strokeWidth: 4.0,
+                      color: Colors.blue.shade600,
+                    ),
+                  ],
+                ),
               MarkerLayer(markers: [
                 // GPS pickup marker (blue dot)
                 Marker(
@@ -1532,7 +1885,38 @@ class _BookRideTabState extends State<BookRideTab> {
             ),
           ),
           // Fare estimate chip (shown when pickup + dropoff are both known)
-          if (_fareEstimate != null)
+          if (_fareEstimate != null && _feluccaFareAmt != null && _hantourFareAmt != null)
+            Positioned(
+              top: 12,
+              left: 12,
+              child: Container(
+                constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width - 24),
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 6)],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('🚣 Felucca: EGP ${_feluccaFareAmt!.toStringAsFixed(0)}',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: Colors.teal.shade800)),
+                    SizedBox(height: 2),
+                    Text('🐎 Horse: EGP ${_hantourFareAmt!.toStringAsFixed(0)}',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: Colors.brown.shade700)),
+                  ],
+                ),
+              ),
+            ),
+          if (_fetchingRoute)
             Positioned(
               top: 12,
               left: 12,
@@ -1546,13 +1930,10 @@ class _BookRideTabState extends State<BookRideTab> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.monetization_on, color: Colors.teal.shade700, size: 16),
-                    SizedBox(width: 6),
-                    Text(_fareEstimate!,
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                            color: Colors.teal.shade800)),
+                    SizedBox(width: 14, height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                    SizedBox(width: 8),
+                    Text(AppLocalizations.of(context).findingRoute, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
                   ],
                 ),
               ),
@@ -1589,7 +1970,7 @@ class _BookRideTabState extends State<BookRideTab> {
                       children: [
                         Icon(Icons.location_searching, color: Colors.blue.shade700),
                         SizedBox(width: 10),
-                        Text('Plan Your Ride',
+                        Text(AppLocalizations.of(context).planYourRide,
                             style: TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 17)),
                       ],
@@ -1599,23 +1980,62 @@ class _BookRideTabState extends State<BookRideTab> {
                     padding: EdgeInsets.all(20),
                     child: Column(
                       children: [
-                        _mapInput(_pickupCtrl, 'Pickup point',
+                        _mapInput(_pickupCtrl, AppLocalizations.of(context).pickupPoint,
                             'Luxor Temple, your hotel...', Icons.trip_origin, Colors.green),
                         SizedBox(height: 10),
-                        _mapInput(_dropoffCtrl, 'Drop off point',
+                        _mapInput(_dropoffCtrl, AppLocalizations.of(context).dropoffPoint,
                             'Karnak, Nile Corniche...', Icons.location_on, Colors.red),
                         SizedBox(height: 10),
                         Row(
                           children: [
                             Expanded(
-                                child: _mapInput(_timeCtrl, 'Pickup Time',
-                                    '20:00 PM', Icons.access_time, Colors.blue)),
+                              child: GestureDetector(
+                                onTap: _pickDateTime,
+                                child: AbsorbPointer(
+                                  child: _mapInput(_timeCtrl, AppLocalizations.of(context).pickupTime,
+                                      'Now', Icons.access_time, Colors.blue),
+                                ),
+                              ),
+                            ),
                             SizedBox(width: 10),
                             Expanded(
-                                child: _mapInput(_dateCtrl, 'Date',
-                                    'DD/MM/YYYY', Icons.calendar_today, Colors.purple)),
+                              child: GestureDetector(
+                                onTap: _pickDateTime,
+                                child: AbsorbPointer(
+                                  child: _mapInput(_dateCtrl, AppLocalizations.of(context).date,
+                                      'Today', Icons.calendar_today, Colors.purple),
+                                ),
+                              ),
+                            ),
+                            if (_scheduledAt != null)
+                              IconButton(
+                                icon: Icon(Icons.close, color: Colors.grey),
+                                onPressed: _clearSchedule,
+                                tooltip: 'Clear schedule',
+                              ),
                           ],
                         ),
+                        if (_isScheduled)
+                          Container(
+                            margin: EdgeInsets.only(top: 6),
+                            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.blue.shade200),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.schedule, size: 14, color: Colors.blue.shade700),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Scheduled: ${_timeCtrl.text} · ${_dateCtrl.text}',
+                                  style: TextStyle(color: Colors.blue.shade700, fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
                         SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,
@@ -1640,6 +2060,13 @@ class _BookRideTabState extends State<BookRideTab> {
                                             time: _timeCtrl.text.trim(),
                                             date: _dateCtrl.text.trim(),
                                             filter: homeState?.vehicleFilter,
+                                            pickupLat: _pickupLoc?.latitude,
+                                            pickupLng: _pickupLoc?.longitude,
+                                            dropoffLat: _destinationLoc?.latitude,
+                                            dropoffLng: _destinationLoc?.longitude,
+                                            scheduledAt: _scheduledAt?.toIso8601String(),
+                                            feluccaFare: _feluccaFareAmt ?? 0.0,
+                                            hantourFare: _hantourFareAmt ?? 0.0,
                                           )));
                             },
                             style: ElevatedButton.styleFrom(
@@ -1647,7 +2074,7 @@ class _BookRideTabState extends State<BookRideTab> {
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14)),
                             ),
-                            child: Text('Find Rides',
+                            child: Text(AppLocalizations.of(context).findRides,
                                 style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 17,
@@ -1696,13 +2123,28 @@ class VehicleSelectScreen extends StatefulWidget {
   final String time;
   final String date;
   final String? filter;
+  final double? pickupLat;
+  final double? pickupLng;
+  final double? dropoffLat;
+  final double? dropoffLng;
+  final String? scheduledAt;
+  final double feluccaFare;
+  final double hantourFare;
 
-  VehicleSelectScreen(
-      {required this.pickup,
-      required this.dropoff,
-      required this.time,
-      required this.date,
-      this.filter});
+  VehicleSelectScreen({
+    required this.pickup,
+    required this.dropoff,
+    required this.time,
+    required this.date,
+    this.filter,
+    this.pickupLat,
+    this.pickupLng,
+    this.dropoffLat,
+    this.dropoffLng,
+    this.scheduledAt,
+    this.feluccaFare = 0.0,
+    this.hantourFare = 0.0,
+  });
 
   @override
   _VehicleSelectScreenState createState() => _VehicleSelectScreenState();
@@ -1711,49 +2153,114 @@ class VehicleSelectScreen extends StatefulWidget {
 class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
   String? _selId, _selType, _selDriver;
   String? _activeFilter;
+  double _proposedFare = 0;
+  final TextEditingController _fareCtrl = TextEditingController();
+  double _feluccaFare = 0;
+  double _hantourFare = 0;
+  int? _feluccaDurationMin; // 15, 30, or 60 — drives Felucca fare
 
   @override
   void initState() {
     super.initState();
     _activeFilter = widget.filter;
+
+    // Horse Carriage: use passed fare, or compute from distance (GPS + landmark lookup)
+    _hantourFare = widget.hantourFare;
+    if (_hantourFare <= 0) {
+      _computeFares(); // resolves coords internally — safe even without dropoffLat
+    }
+    // Felucca fare is always set by duration selection, not distance
+
+    // Auto-select the pre-filtered vehicle so the UI appears immediately
+    if (_activeFilter != null) {
+      _selType = _activeFilter;
+      _selId = _activeFilter!.toLowerCase();
+      _selDriver = '';
+      if (_activeFilter == 'Horse Carriage') {
+        // Only pre-fill fare if already known; otherwise wait for _computeFares() result
+        if (_hantourFare > 0) {
+          _proposedFare = _hantourFare;
+          _fareCtrl.text = _hantourFare.toStringAsFixed(0);
+        }
+      }
+      // Felucca: fare is set when user picks a duration below
+    }
   }
 
-  Stream<List<Map<String, dynamic>>> _driversStream() {
-    return FirebaseFirestore.instance
-        .collection('drivers')
-        .snapshots()
-        .map((snap) => snap.docs.map((d) {
-              final data = d.data();
-              final vType = data['vehicleType'] ?? 'felucca';
-              final isFelucca = vType.toLowerCase().replaceAll(' ', '_') == 'felucca';
-              return {
-                'id': data['vehicleId'] ?? d.id,
-                'driverUid': d.id,
-                'type': isFelucca ? 'Felucca' : 'Horse Carriage',
-                'driver': data['name'] ?? 'Driver',
-                'rating': () {
-                    final r = data['rating'];
-                    if (r == null) return '5.0';
-                    if (r is num) return r.toStringAsFixed(1);
-                    return r.toString();
-                  }(),
-                'eta': '5 min',
-                'price': isFelucca ? 'EGP 50' : 'EGP 80',
-                'label': isFelucca ? 'Nile Felucca Ride' : 'Hantour Carriage Ride',
-                'gradientA': isFelucca ? Color(0xFF0D47A1) : Color(0xFFBF360C),
-                'gradientB': isFelucca ? Color(0xFF42A5F5) : Color(0xFFFFB74D),
-                'icon': isFelucca ? Icons.sailing : Icons.directions,
-                'tag': isFelucca ? 'Felucca' : 'Hantour',
-                'tagColor': isFelucca ? Color(0xFF1976D2) : Color(0xFF43A047),
-              };
-            }).toList());
+  void _updateFareField() {
+    // Felucca fare is driven by duration selection, not distance — skip it here
+    if (_selType == 'Horse Carriage') {
+      _proposedFare = _hantourFare;
+      _fareCtrl.text = _hantourFare.toStringAsFixed(0);
+    }
+  }
+
+  Future<void> _computeFares() async {
+    // Resolve pickup: use passed coords, get GPS, or fall back to Luxor Corniche
+    double pickupLat = widget.pickupLat ?? 0;
+    double pickupLng = widget.pickupLng ?? 0;
+    if (pickupLat == 0 || pickupLng == 0) {
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.low);
+        pickupLat = pos.latitude;
+        pickupLng = pos.longitude;
+      } catch (_) {
+        pickupLat = 25.6872; // Luxor Corniche
+        pickupLng = 32.6396;
+      }
+    }
+
+    // Resolve dropoff: use passed coords, look up known landmarks, or use 2 km offset
+    double dropLat = widget.dropoffLat ?? 0;
+    double dropLng = widget.dropoffLng ?? 0;
+    if (dropLat == 0 || dropLng == 0) {
+      const landmarks = {
+        'Luxor Temple':     [25.6987, 32.6390],
+        'Karnak Temple':    [25.7188, 32.6571],
+        'Nile Corniche':    [25.6872, 32.6370],
+        'Winter Palace':    [25.6938, 32.6393],
+        'Luxor Museum':     [25.7010, 32.6390],
+        'Luxor Airport':    [25.6710, 32.7061],
+        'Hatshepsut':       [25.7379, 32.6073],
+        'Valley of Kings':  [25.7402, 32.6014],
+      };
+      bool found = false;
+      for (final entry in landmarks.entries) {
+        if (widget.dropoff.toLowerCase().contains(entry.key.toLowerCase())) {
+          dropLat = entry.value[0];
+          dropLng = entry.value[1];
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        // Unknown destination — estimate with a 2 km offset from pickup
+        dropLat = pickupLat + 0.018;
+        dropLng = pickupLng;
+      }
+    }
+
+    // Haversine distance for Horse Carriage (carriages don't follow car roads)
+    final distKm = FareEstimator.distanceKm(pickupLat, pickupLng, dropLat, dropLng);
+    if (!mounted) return;
+    setState(() {
+      _hantourFare = FareEstimator.estimate(distKm, vehicleType: 'horse_carriage').total;
+      _updateFareField();
+    });
+  }
+
+  @override
+  void dispose() {
+    _fareCtrl.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Choose Your Ride'),
+        title: Text(AppLocalizations.of(context).selectVehicle),
         centerTitle: true,
         leading: IconButton(
             icon: Icon(Icons.arrow_back),
@@ -1805,135 +2312,50 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
           ),
           Divider(height: 1),
 
-          // Map mini view
-          Container(
-            height: 160,
-            child: FlutterMap(
-              options: MapOptions(
-                initialCenter: LatLng(25.6872, 32.6396),
-                initialZoom: 13.5,
-              ),
+          // Vehicle type selection
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.all(14),
               children: [
-                TileLayer(
-                  urlTemplate: 'https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=rqp9ddE9k50t0V3suet2',
-                  userAgentPackageName: 'com.flutour.passenger',
-                ),
-                MarkerLayer(markers: [
-                  Marker(
-                    width: 36,
-                    height: 36,
-                    point: LatLng(25.6890, 32.6370),
-                    child: Icon(Icons.trip_origin, color: Colors.green, size: 28),
+                if (_activeFilter == null || _activeFilter == 'Felucca') ...[
+                  _buildTypeCard(
+                    type: 'Felucca',
+                    label: 'Nile Felucca Ride',
+                    description: 'Scenic Nile sailing experience',
+                    icon: Icons.sailing,
+                    gradientA: Color(0xFF0D47A1),
+                    gradientB: Color(0xFF42A5F5),
+                    tagColor: Color(0xFF1976D2),
+                    calcFare: _feluccaFare,
                   ),
-                  Marker(
-                    width: 36,
-                    height: 36,
-                    point: LatLng(25.6840, 32.6450),
-                    child: Icon(Icons.location_on, color: Colors.red, size: 28),
+                  if (_activeFilter == null) SizedBox(height: 12),
+                ],
+                if (_activeFilter == null || _activeFilter == 'Horse Carriage')
+                  _buildTypeCard(
+                    type: 'Horse Carriage',
+                    label: 'Hantour Carriage Ride',
+                    description: 'Traditional horse carriage through Luxor',
+                    icon: Icons.directions,
+                    gradientA: Color(0xFFBF360C),
+                    gradientB: Color(0xFFFFB74D),
+                    tagColor: Color(0xFF43A047),
+                    calcFare: _hantourFare,
                   ),
-                ]),
               ],
             ),
           ),
 
-          // Active filter chip
-          if (_activeFilter != null)
-            Container(
-              color: Colors.white,
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Row(
-                children: [
-                  Icon(
-                    _activeFilter == 'Felucca' ? Icons.sailing : Icons.directions,
-                    size: 16,
-                    color: _activeFilter == 'Felucca'
-                        ? Colors.blue.shade700
-                        : Colors.orange.shade700,
-                  ),
-                  SizedBox(width: 6),
-                  Text('Showing: $_activeFilter only',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade800)),
-                  Spacer(),
-                  GestureDetector(
-                    onTap: () => setState(() {
-                      _activeFilter = null;
-                      _selId = null;
-                      _selType = null;
-                      _selDriver = null;
-                    }),
-                    child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Row(
-                        children: [
-                          Text('Show all',
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-                          SizedBox(width: 4),
-                          Icon(Icons.close, size: 14, color: Colors.grey.shade600),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+          // Fare/duration section — shown once a type is selected
+          if (_selType != null)
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: _selType == 'Felucca'
+                  ? _buildFeluccaDurationPicker()
+                  : _buildHantourFareField(),
             ),
-          if (_activeFilter != null) Divider(height: 1),
 
-          // Vehicle list (real drivers from Firestore)
-          Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _driversStream(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Text('Error: ${snapshot.error}',
-                          style: TextStyle(color: Colors.red, fontSize: 12)),
-                    ),
-                  );
-                }
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Center(child: CircularProgressIndicator());
-                }
-                final all = snapshot.data ?? [];
-                final displayed = _activeFilter != null
-                    ? all.where((v) => v['type'] == _activeFilter).toList()
-                    : all;
-                if (displayed.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.search_off, size: 48, color: Colors.grey.shade400),
-                        SizedBox(height: 12),
-                        Text('No drivers available right now',
-                            style: TextStyle(color: Colors.grey.shade600)),
-                        SizedBox(height: 8),
-                        Text('Total in DB: ${all.length}',
-                            style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
-                      ],
-                    ),
-                  );
-                }
-                return ListView.builder(
-                  padding: EdgeInsets.all(14),
-                  itemCount: displayed.length,
-                  itemBuilder: (context, i) => _buildVehicleCard(displayed[i]),
-                );
-              },
-            ),
-          ),
-
-          // Proceed button (shows when selected)
-          if (_selId != null)
+          // Proceed button
+          if (_selType != null)
             Container(
               color: Colors.white,
               padding: EdgeInsets.fromLTRB(16, 12, 16, 20),
@@ -1941,24 +2363,37 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PaymentScreen(
-                        vehicleId: _selId!,
-                        type: _selType!,
-                        driver: _selDriver!,
-                        pickup: widget.pickup,
-                        dropoff: widget.dropoff,
+                  onPressed: () {
+                    if (_selType == 'Felucca' && _feluccaDurationMin == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Please select a trip duration for your Felucca ride')));
+                      return;
+                    }
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PaymentScreen(
+                          vehicleId: _selType!.toLowerCase(),
+                          type: _selType!,
+                          driver: '',
+                          pickup: widget.pickup,
+                          dropoff: widget.dropoff,
+                          proposedFare: _proposedFare,
+                          pickupLat: widget.pickupLat,
+                          pickupLng: widget.pickupLng,
+                          dropoffLat: widget.dropoffLat,
+                          dropoffLng: widget.dropoffLng,
+                          scheduledAt: widget.scheduledAt,
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue.shade700,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
                   ),
-                  child: Text('Proceed to Payment',
+                  child: Text('Proceed',
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 16,
@@ -1971,18 +2406,35 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
     );
   }
 
-  Widget _buildVehicleCard(Map<String, dynamic> v) {
-    final bool isSelected = _selId == v['id'];
+  Widget _buildTypeCard({
+    required String type,
+    required String label,
+    required String description,
+    required IconData icon,
+    required Color gradientA,
+    required Color gradientB,
+    required Color tagColor,
+    required double calcFare,
+  }) {
+    final isSelected = _selType == type;
+    final isFelucca = type == 'Felucca';
+    final fare = isFelucca ? 0.0 : (calcFare > 0 ? calcFare : 30.0);
     return GestureDetector(
       onTap: () => setState(() {
-        _selId = v['id'];
-        _selType = v['type'];
-        _selDriver = v['driver'];
+        if (_selType != type) _feluccaDurationMin = null;
+        _selType = type;
+        _selId = type.toLowerCase();
+        _selDriver = '';
+        if (isFelucca) {
+          _proposedFare = 0;
+        } else {
+          _proposedFare = fare;
+          _fareCtrl.text = fare.toStringAsFixed(0);
+        }
       }),
       child: AnimatedContainer(
         duration: Duration(milliseconds: 200),
-        margin: EdgeInsets.only(bottom: 12),
-        padding: EdgeInsets.all(14),
+        padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: isSelected ? Colors.blue.shade50 : Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -2000,134 +2452,176 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
         ),
         child: Row(
           children: [
-            // Vehicle type thumbnail
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                width: 90,
-                height: 90,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [v['gradientA'] as Color, v['gradientB'] as Color],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [gradientA, gradientB],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Center(child: Icon(v['icon'] as IconData, color: Colors.white54, size: 44)),
-                    Positioned(
-                      left: 0, right: 0, bottom: 0,
-                      child: Container(
-                        color: Colors.black38,
-                        padding: EdgeInsets.symmetric(vertical: 3),
-                        alignment: Alignment.center,
-                        child: Text(v['id'],
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5)),
-                      ),
-                    ),
-                    Positioned(
-                      top: 5, left: 5,
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: v['tagColor'] as Color,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(v['tag'],
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ],
-                ),
+                borderRadius: BorderRadius.circular(12),
               ),
+              child: Center(child: Icon(icon, color: Colors.white, size: 40)),
             ),
-            SizedBox(width: 14),
-            // Info
+            SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(v['label'],
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 14),
-                            overflow: TextOverflow.ellipsis),
+                  Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  SizedBox(height: 4),
+                  Text(description, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                  SizedBox(height: 8),
+                  Row(children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: tagColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                    ],
-                  ),
-                  SizedBox(height: 2),
-                  Text(v['type'],
-                      style: TextStyle(
-                          color: v['type'] == 'Felucca'
-                              ? Colors.blue.shade600
-                              : Colors.orange.shade700,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600)),
-                  SizedBox(height: 3),
-                  Text(v['driver'],
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                  SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Icon(Icons.star, size: 13, color: Colors.amber),
-                      SizedBox(width: 3),
-                      Text(v['rating'],
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-                      SizedBox(width: 12),
-                      Icon(Icons.access_time, size: 13, color: Colors.blue.shade400),
-                      SizedBox(width: 3),
-                      Text(v['eta'],
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-                    ],
-                  ),
+                      child: isFelucca
+                          ? Text('50–120 EGP',
+                              style: TextStyle(color: tagColor, fontWeight: FontWeight.bold, fontSize: 13))
+                          : Text('${fare.toStringAsFixed(0)} EGP',
+                              style: TextStyle(color: tagColor, fontWeight: FontWeight.bold, fontSize: 13)),
+                    ),
+                    SizedBox(width: 8),
+                    Icon(Icons.info_outline, size: 14, color: Colors.grey.shade400),
+                    SizedBox(width: 4),
+                    Flexible(child: Text(
+                        isFelucca ? 'Time-based pricing' : 'Distance-based pricing',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.grey.shade500, fontSize: 11))),
+                  ]),
                 ],
               ),
             ),
-            // Price + select
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(v['price'],
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                        color: Colors.blue.shade700)),
-                SizedBox(height: 6),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isSelected ? Colors.blue.shade700 : Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    isSelected ? '✓ Selected' : 'Select',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: isSelected ? Colors.white : Colors.grey.shade700,
-                        fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
+            if (isSelected)
+              Icon(Icons.check_circle, color: Colors.blue.shade600, size: 24),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildFeluccaDurationPicker() {
+    final durations = [15, 30, 60];
+    final fares = [50.0, 80.0, 120.0];
+    final labels = ['15 min', '30 min', '1 hr'];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Select trip duration',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        SizedBox(height: 10),
+        Row(
+          children: List.generate(3, (i) {
+            final mins = durations[i];
+            final total = (fares[i] * FareEstimator.feluccaSurge).round();
+            final isSelected = _feluccaDurationMin == mins;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() {
+                  _feluccaDurationMin = mins;
+                  _proposedFare = total.toDouble();
+                  _fareCtrl.text = total.toString();
+                }),
+                child: AnimatedContainer(
+                  duration: Duration(milliseconds: 150),
+                  margin: EdgeInsets.symmetric(horizontal: 4),
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: isSelected ? Colors.blue.shade700 : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected ? Colors.blue.shade700 : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(labels[i],
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: isSelected ? Colors.white : Colors.black87,
+                          )),
+                      SizedBox(height: 4),
+                      Text('$total EGP',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isSelected ? Colors.white70 : Colors.grey.shade600,
+                          )),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHantourFareField() {
+    final suggested = _hantourFare > 0
+        ? _hantourFare
+        : widget.hantourFare > 0
+            ? widget.hantourFare
+            : 30.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Your price offer (EGP)',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: TextField(
+                  controller: _fareCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    border: InputBorder.none,
+                    hintText: 'Enter your offer',
+                    suffixText: 'EGP',
+                  ),
+                  onChanged: (v) {
+                    final d = double.tryParse(v);
+                    if (d != null) setState(() => _proposedFare = d);
+                  },
+                ),
+              ),
+            ),
+            SizedBox(width: 10),
+            Text(
+              'Suggested: ${suggested.toStringAsFixed(0)} EGP',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
 }
 
-double _fareForType(String type) => type == 'Felucca' ? 50.0 : 80.0;
+/// Returns the minimum session fare for the vehicle type.
+/// Felucca: 50 EGP (≤15 min), Horse Carriage: 30 EGP (≤500 m).
+/// Surge is applied on top.
+double _fareForType(String type) {
+  final isFelucca = type == 'Felucca';
+  final surge = isFelucca ? FareEstimator.feluccaSurge : FareEstimator.hantourSurge;
+  final base = isFelucca ? 50.0 : 30.0; // minimum session fare
+  return double.parse((base * surge).toStringAsFixed(0));
+}
 
 // ===== 8. PAYMENT SCREEN =====
 class PaymentScreen extends StatefulWidget {
@@ -2136,6 +2630,12 @@ class PaymentScreen extends StatefulWidget {
   final String driver;
   final String pickup;
   final String dropoff;
+  final double proposedFare;
+  final double? pickupLat;
+  final double? pickupLng;
+  final double? dropoffLat;
+  final double? dropoffLng;
+  final String? scheduledAt;
 
   PaymentScreen({
     required this.vehicleId,
@@ -2143,6 +2643,12 @@ class PaymentScreen extends StatefulWidget {
     required this.driver,
     required this.pickup,
     required this.dropoff,
+    this.proposedFare = 0,
+    this.pickupLat,
+    this.pickupLng,
+    this.dropoffLat,
+    this.dropoffLng,
+    this.scheduledAt,
   });
 
   @override
@@ -2151,18 +2657,62 @@ class PaymentScreen extends StatefulWidget {
 
 class _PaymentScreenState extends State<PaymentScreen> {
   String _selected = 'Cash';
+  final _promoCtrl = TextEditingController();
+  double _discount = 0;
+  bool _promoApplied = false;
+  bool _promoLoading = false;
+  String? _promoError;
 
-  final List<Map<String, dynamic>> _methods = [
-    {'name': 'Cash', 'icon': Icons.money, 'desc': 'Pay at end of ride'},
-    {'name': 'Credit Card', 'icon': Icons.credit_card, 'desc': 'Visa / Mastercard'},
-    {'name': 'Mobile Wallet', 'icon': Icons.account_balance_wallet, 'desc': 'Vodafone, Orange...'},
-  ];
+  // Use the passenger's proposed fare when available, otherwise fall back to minimum fare
+  double get _baseFare => widget.proposedFare > 0 ? widget.proposedFare : _fareForType(widget.type);
+
+  Future<void> _applyPromo() async {
+    final code = _promoCtrl.text.trim().toUpperCase();
+    if (code.isEmpty) return;
+    setState(() { _promoLoading = true; _promoError = null; });
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('promoCodes')
+          .where('code', isEqualTo: code)
+          .where('active', isEqualTo: true)
+          .limit(1)
+          .get();
+      if (snap.docs.isEmpty) {
+        setState(() { _promoError = 'Invalid or expired promo code'; _promoLoading = false; });
+        return;
+      }
+      final data = snap.docs.first.data();
+      final discountPct = (data['discountPercent'] as num?)?.toDouble() ?? 0;
+      setState(() {
+        _discount = (_baseFare * discountPct / 100).roundToDouble();
+        _promoApplied = true;
+        _promoLoading = false;
+      });
+    } catch (e) {
+      setState(() { _promoError = 'Could not apply code: $e'; _promoLoading = false; });
+    }
+  }
+
+  void _removePromo() {
+    setState(() { _discount = 0; _promoApplied = false; _promoCtrl.clear(); _promoError = null; });
+  }
+
+  @override
+  void dispose() {
+    _promoCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    final List<Map<String, dynamic>> methods = [
+      {'name': l.cash, 'key': 'Cash', 'icon': Icons.money, 'desc': l.payAtEndOfRide},
+      {'name': 'InstaPay', 'key': 'InstaPay', 'icon': Icons.account_balance, 'desc': 'Transfer via InstaPay after booking'},
+    ];
     return Scaffold(
       appBar: AppBar(
-        title: Text('Payment'),
+        title: Text(l.paymentMethod),
         centerTitle: true,
         leading: IconButton(
             icon: Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
@@ -2195,13 +2745,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         _summaryRow(Icons.directions_boat, 'Vehicle',
                             '${widget.type} (${widget.vehicleId})'),
                         _summaryRow(Icons.drive_eta, 'Driver', widget.driver),
-                        _summaryRow(Icons.trip_origin, 'From', widget.pickup),
-                        _summaryRow(Icons.location_on, 'To', widget.dropoff),
+                        _summaryRow(Icons.trip_origin, l.from, widget.pickup),
+                        _summaryRow(Icons.location_on, l.to, widget.dropoff),
                         Divider(height: 16),
                         Builder(builder: (context) {
-                          final fare = _fareForType(widget.type);
+                          final fare = _baseFare;
                           final serviceFee = (fare * 0.10).roundToDouble();
-                          final total = fare + serviceFee;
+                          final total = (fare + serviceFee - _discount).clamp(0, double.infinity);
                           return Column(
                             children: [
                               Row(
@@ -2219,6 +2769,17 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                   Text('EGP ${serviceFee.toStringAsFixed(0)}', style: TextStyle(fontWeight: FontWeight.w500)),
                                 ],
                               ),
+                              if (_discount > 0) ...[
+                                SizedBox(height: 4),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text('Promo discount:', style: TextStyle(color: Colors.green.shade700)),
+                                    Text('- EGP ${_discount.toStringAsFixed(0)}',
+                                        style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.w500)),
+                                  ],
+                                ),
+                              ],
                               Divider(height: 16),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2241,30 +2802,30 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   ),
                   SizedBox(height: 24),
 
-                  Text('Select Payment Method',
+                  Text(l.paymentMethod,
                       style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                   SizedBox(height: 12),
 
-                  ..._methods.map((m) => GestureDetector(
-                        onTap: () => setState(() => _selected = m['name']),
+                  ...methods.map((m) => GestureDetector(
+                        onTap: () => setState(() => _selected = m['key'] as String),
                         child: AnimatedContainer(
                           duration: Duration(milliseconds: 200),
                           margin: EdgeInsets.only(bottom: 12),
                           padding: EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: _selected == m['name']
+                            color: _selected == m['key']
                                 ? Colors.blue.shade50
                                 : Colors.white,
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: _selected == m['name']
+                              color: _selected == m['key']
                                   ? Colors.blue.shade600
                                   : Colors.grey.shade200,
-                              width: _selected == m['name'] ? 2 : 1,
+                              width: _selected == m['key'] ? 2 : 1,
                             ),
                             boxShadow: [
                               BoxShadow(
-                                  color: _selected == m['name']
+                                  color: _selected == m['key']
                                       ? Colors.blue.withOpacity(0.1)
                                       : Colors.black12,
                                   blurRadius: 8,
@@ -2276,13 +2837,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                               Container(
                                 padding: EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color: _selected == m['name']
+                                  color: _selected == m['key']
                                       ? Colors.blue.shade100
                                       : Colors.grey.shade100,
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Icon(m['icon'],
-                                    color: _selected == m['name']
+                                    color: _selected == m['key']
                                         ? Colors.blue.shade700
                                         : Colors.grey.shade600,
                                     size: 24),
@@ -2292,18 +2853,18 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(m['name'],
+                                    Text(m['name'] as String,
                                         style: TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 15)),
-                                    Text(m['desc'],
+                                    Text(m['desc'] as String,
                                         style: TextStyle(
                                             color: Colors.grey.shade600,
                                             fontSize: 12)),
                                   ],
                                 ),
                               ),
-                              if (_selected == m['name'])
+                              if (_selected == m['key'])
                                 Container(
                                   padding: EdgeInsets.all(4),
                                   decoration: BoxDecoration(
@@ -2318,6 +2879,98 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       )),
                 ],
               ),
+            ),
+          ),
+          // InstaPay info
+          if (_selected == 'InstaPay')
+            Container(
+              margin: EdgeInsets.fromLTRB(20, 0, 20, 12),
+              padding: EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Icon(Icons.info_outline, color: Colors.blue.shade700, size: 18),
+                    SizedBox(width: 8),
+                    Text('How InstaPay works', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade800, fontSize: 14)),
+                  ]),
+                  SizedBox(height: 8),
+                  Text('1. Confirm your booking', style: TextStyle(fontSize: 13, color: Colors.blue.shade900)),
+                  Text('2. Driver\'s InstaPay number will be shown', style: TextStyle(fontSize: 13, color: Colors.blue.shade900)),
+                  Text('3. Transfer the fare via your bank app', style: TextStyle(fontSize: 13, color: Colors.blue.shade900)),
+                  Text('4. Driver confirms receipt — no fees, instant', style: TextStyle(fontSize: 13, color: Colors.blue.shade900)),
+                ],
+              ),
+            ),
+          // Promo code field
+          Container(
+            color: Colors.white,
+            padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        child: TextField(
+                          controller: _promoCtrl,
+                          enabled: !_promoApplied,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            hintText: 'Promo code',
+                            prefixIcon: Icon(Icons.local_offer, color: Colors.green.shade600, size: 18),
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    _promoApplied
+                        ? TextButton.icon(
+                            onPressed: _removePromo,
+                            icon: Icon(Icons.close, size: 16),
+                            label: Text('Remove'),
+                            style: TextButton.styleFrom(foregroundColor: Colors.red),
+                          )
+                        : ElevatedButton(
+                            onPressed: _promoLoading ? null : _applyPromo,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green.shade600,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: _promoLoading
+                                ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : Text('Apply', style: TextStyle(color: Colors.white)),
+                          ),
+                  ],
+                ),
+                if (_promoApplied)
+                  Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Row(children: [
+                      Icon(Icons.check_circle, color: Colors.green.shade600, size: 16),
+                      SizedBox(width: 6),
+                      Text('Promo applied! - EGP ${_discount.toStringAsFixed(0)} off',
+                          style: TextStyle(color: Colors.green.shade700, fontSize: 13, fontWeight: FontWeight.bold)),
+                    ]),
+                  ),
+                if (_promoError != null)
+                  Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(_promoError!, style: TextStyle(color: Colors.red.shade600, fontSize: 13)),
+                  ),
+              ],
             ),
           ),
           // Pay button
@@ -2338,7 +2991,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         vehicleType: widget.type,
                         driver: widget.driver,
                         payment: _selected,
-                        fare: _fareForType(widget.type),
+                        fare: _baseFare,
+                        proposedFare: widget.proposedFare,
+                        pickupLat: widget.pickupLat,
+                        pickupLng: widget.pickupLng,
+                        dropoffLat: widget.dropoffLat,
+                        dropoffLng: widget.dropoffLng,
+                        scheduledAt: widget.scheduledAt,
                       ),
                     ),
                   );
@@ -2348,7 +3007,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
-                child: Text('Confirm & Book · $_selected',
+                child: Text('${l.pay} · $_selected',
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 17,
@@ -2399,9 +3058,10 @@ class _CashPaymentScreenState extends State<CashPaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-          title: Text('Cash Payment'),
+          title: Text(l.cash),
           centerTitle: true,
           leading:
               IconButton(icon: Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context))),
@@ -2445,8 +3105,8 @@ class _CashPaymentScreenState extends State<CashPaymentScreen> {
             SizedBox(height: 12),
             _row('Vehicle', '${widget.type} (${widget.vehicleId})'),
             _row('Driver', widget.driver),
-            _row('From', widget.pickup),
-            _row('To', widget.dropoff),
+            _row(l.from, widget.pickup),
+            _row(l.to, widget.dropoff),
             _row('Ride Price', 'EGP ${(_fareForType(widget.type) * 0.9).toStringAsFixed(0)}'),
             _row('Service Fee (10%)', 'EGP ${(_fareForType(widget.type) * 0.1).toStringAsFixed(0)}'),
             Divider(height: 20),
@@ -3072,14 +3732,26 @@ class _MobileWalletScreenState extends State<MobileWalletScreen> {
 class BookingConfirmedScreen extends StatefulWidget {
   final String vehicleId, type, driver, pickup, dropoff, payment;
   final String? tripId;
-  BookingConfirmedScreen(
-      {required this.vehicleId,
-      required this.type,
-      required this.driver,
-      required this.pickup,
-      required this.dropoff,
-      required this.payment,
-      this.tripId});
+  final double? pickupLat;
+  final double? pickupLng;
+  final double? dropoffLat;
+  final double? dropoffLng;
+  final String? scheduledAt;
+
+  BookingConfirmedScreen({
+    required this.vehicleId,
+    required this.type,
+    required this.driver,
+    required this.pickup,
+    required this.dropoff,
+    required this.payment,
+    this.tripId,
+    this.pickupLat,
+    this.pickupLng,
+    this.dropoffLat,
+    this.dropoffLng,
+    this.scheduledAt,
+  });
 
   @override
   _BookingConfirmedScreenState createState() => _BookingConfirmedScreenState();
@@ -3093,13 +3765,35 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
   StreamSubscription? _tripSub;
   Timer? _pollTimer;
   bool _navigated = false;
+  LatLng? _driverLoc;
+  String? _driverId;
+  StreamSubscription? _driverLocSub;
+  final MapController _mapCtrl = MapController();
+  List<LatLng>? _routePoints;
+  List<LatLng>? _tripRoutePoints;
+  DateTime? _lastRouteFetch;
+  double? _counterFare;
+  String? _driverInstapayPhone;
+  String? _driverPhone;
+  String? _vehiclePhotoUrl;
+  String? _driverPhotoUrl;
+  double _driverRating = 0.0;
+  DateTime? _tripStartedAt;
+  bool _counterPending = false;
+  double _actualFare = 0.0;
+  final GlobalKey _shareTripKey = GlobalKey();
 
-  final List<Map<String, dynamic>> _steps = [
-    {'label': 'Booking Confirmed', 'icon': Icons.check_circle, 'color': Colors.green},
-    {'label': 'Driver On the Way', 'icon': Icons.drive_eta, 'color': Colors.blue},
-    {'label': 'Driver Arrived', 'icon': Icons.where_to_vote, 'color': Colors.orange},
-    {'label': 'Ride in Progress', 'icon': Icons.sailing, 'color': Colors.teal},
-  ];
+  double get _displayFare => _actualFare > 0 ? _actualFare : _fareForType(widget.type);
+
+  List<Map<String, dynamic>> _steps(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return [
+      {'label': l.bookingConfirmed, 'icon': Icons.check_circle, 'color': Colors.green},
+      {'label': l.driverOnTheWay, 'icon': Icons.drive_eta, 'color': Colors.blue},
+      {'label': l.driverArrived, 'icon': Icons.where_to_vote, 'color': Colors.orange},
+      {'label': l.rideInProgress, 'icon': Icons.sailing, 'color': Colors.teal},
+    ];
+  }
 
   @override
   void initState() {
@@ -3108,6 +3802,22 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
     _scaleAnim = Tween<double>(begin: 0, end: 1)
         .animate(CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut));
     _ctrl.forward();
+
+    // Use cached route instantly, then fetch ORS route async to update
+    if (RouteService.lastResult != null) {
+      _tripRoutePoints = RouteService.lastResult!.points;
+    }
+    if (widget.pickupLat != null && widget.pickupLng != null &&
+        widget.dropoffLat != null && widget.dropoffLng != null) {
+      final pickup = LatLng(widget.pickupLat!, widget.pickupLng!);
+      final dropoff = LatLng(widget.dropoffLat!, widget.dropoffLng!);
+      RouteService.fetchRoute(pickup, dropoff).then((result) {
+        if (!mounted) return;
+        if (result != null && result.points.length > 1) {
+          setState(() => _tripRoutePoints = result.points);
+        }
+      });
+    }
 
     if (widget.tripId != null) {
       // Real-time listener — primary mechanism
@@ -3119,7 +3829,62 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
         (doc) {
           if (!mounted || _navigated) return;
           if (!doc.exists) return;
-          _handleStatusUpdate(doc.data()?['status'] ?? '');
+          final data = doc.data()!;
+          _handleStatusUpdate(data['status'] ?? '');
+          // Detect counter offers from driver
+          final counterFare = (data['counterFare'] as num?)?.toDouble();
+          final negotiationStatus = data['negotiationStatus'] as String? ?? 'open';
+          if (negotiationStatus == 'countered' && counterFare != null && counterFare > 0) {
+            setState(() {
+              _counterFare = counterFare;
+              _counterPending = true;
+            });
+          }
+          if (negotiationStatus == 'agreed') {
+            setState(() { _counterPending = false; _counterFare = null; });
+          }
+          // Extract agreed fare (may update after counter-offer negotiation)
+          final rawFare = data['agreedFare'] ?? data['fare'];
+          final tripFare = (rawFare as num?)?.toDouble();
+          if (tripFare != null && tripFare > 0 && _actualFare != tripFare) {
+            setState(() => _actualFare = tripFare);
+          }
+          // Extract driver phone and InstaPay phone once driver accepts
+          final instapayPhone = data['driverInstapayPhone'] as String?;
+          if (instapayPhone != null && _driverInstapayPhone != instapayPhone) {
+            setState(() => _driverInstapayPhone = instapayPhone);
+          }
+          final driverPhone = data['driverPhone'] as String?;
+          if (driverPhone != null && driverPhone.isNotEmpty && _driverPhone != driverPhone) {
+            setState(() => _driverPhone = driverPhone);
+          }
+          // Start driver location listener once we have driverId
+          final driverId = data['driverId'] as String?;
+          if (driverId != null && driverId.isNotEmpty && _driverId != driverId) {
+            _driverId = driverId;
+            _startDriverLocationListener(driverId);
+            // Fetch vehicle photo + real driver rating
+            FirebaseFirestore.instance
+                .collection('drivers')
+                .doc(driverId)
+                .get()
+                .then((d) {
+              if (!mounted) return;
+              final vehicleUrl = d.data()?['vehiclePhotoUrl'] as String?;
+              final driverUrl = d.data()?['photoUrl'] as String?;
+              final rating = (d.data()?['rating'] as num?)?.toDouble() ?? 0.0;
+              setState(() {
+                if (vehicleUrl != null && vehicleUrl.isNotEmpty) _vehiclePhotoUrl = vehicleUrl;
+                if (driverUrl != null && driverUrl.isNotEmpty) _driverPhotoUrl = driverUrl;
+                if (rating > 0) _driverRating = rating;
+              });
+            }).catchError((_) {});
+          }
+          // Record when trip actually starts (for duration calculation)
+          if (data['status'] == 'in_progress' && _tripStartedAt == null) {
+            final ts = data['startedAt'];
+            _tripStartedAt = ts is Timestamp ? ts.toDate() : DateTime.now();
+          }
         },
         onError: (_) {
           // Listener failed — polling timer will catch the next status change
@@ -3138,6 +3903,7 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
           _handleStatusUpdate(doc.data()?['status'] ?? '');
         } catch (_) {}
       });
+
     }
   }
 
@@ -3147,6 +3913,21 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
       _navigated = true;
       _tripSub?.cancel();
       _pollTimer?.cancel();
+      // Calculate real duration from trip start timestamp
+      final durationMin = _tripStartedAt != null
+          ? DateTime.now().difference(_tripStartedAt!).inMinutes.clamp(1, 999)
+          : 0;
+      // Calculate straight-line distance from coordinates if available
+      double distanceKm = 0.0;
+      if (widget.pickupLat != null && widget.pickupLng != null &&
+          widget.dropoffLat != null && widget.dropoffLng != null) {
+        final meters = const Distance().as(
+          LengthUnit.Meter,
+          LatLng(widget.pickupLat!, widget.pickupLng!),
+          LatLng(widget.dropoffLat!, widget.dropoffLng!),
+        );
+        distanceKm = meters / 1000.0;
+      }
       Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -3154,9 +3935,9 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
                     driverName: widget.driver,
                     pickup: widget.pickup,
                     dropoff: widget.dropoff,
-                    distanceKm: 2.0,
-                    durationMin: 20,
-                    fareTotal: _fareForType(widget.type),
+                    distanceKm: distanceKm,
+                    durationMin: durationMin,
+                    fareTotal: _displayFare,
                   )));
       return;
     }
@@ -3167,22 +3948,164 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
     setState(() => _rideStep = step);
   }
 
+  String _formatScheduled(String iso) {
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      return '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  void _startDriverLocationListener(String driverId) {
+    _driverLocSub?.cancel();
+    final ref = FirebaseDatabase.instance.ref('drivers_location/$driverId');
+    _driverLocSub = ref.onValue.listen((event) {
+      if (!mounted) return;
+      final val = event.snapshot.value;
+      if (val == null) return;
+      final map = Map<String, dynamic>.from(val as Map);
+      final lat = (map['lat'] as num?)?.toDouble();
+      final lng = (map['lng'] as num?)?.toDouble();
+      if (lat == null || lng == null) return;
+      final loc = LatLng(lat, lng);
+      setState(() => _driverLoc = loc);
+      // Move map to driver
+      try { _mapCtrl.move(loc, 15.0); } catch (_) {}
+      // Route to dropoff when in progress, otherwise route to pickup
+      final isInProgress = _rideStep >= 3;
+      final destLat = isInProgress ? widget.dropoffLat : widget.pickupLat;
+      final destLng = isInProgress ? widget.dropoffLng : widget.pickupLng;
+      if (destLat != null && destLng != null) {
+        final dest = LatLng(destLat, destLng);
+        // Throttle ORS calls to once every 30 seconds to stay within free tier
+        final now = DateTime.now();
+        if (_lastRouteFetch == null || now.difference(_lastRouteFetch!).inSeconds >= 30) {
+          _lastRouteFetch = now;
+          RouteService.fetchRoute(loc, dest).then((result) {
+            if (!mounted) return;
+            if (result != null && result.points.length > 1) {
+              setState(() => _routePoints = result.points);
+            }
+          });
+        }
+      }
+    });
+  }
+
+  Future<void> _triggerSOS() async {
+    // Get current GPS position
+    double? lat;
+    double? lng;
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      ).timeout(const Duration(seconds: 5));
+      lat = pos.latitude;
+      lng = pos.longitude;
+    } catch (_) {
+      // Use pickup coords as fallback
+      lat = widget.pickupLat;
+      lng = widget.pickupLng;
+    }
+
+    final locationText = (lat != null && lng != null)
+        ? 'https://maps.google.com/?q=$lat,$lng'
+        : 'Location unavailable';
+
+    final message = Uri.encodeComponent(
+      '🆘 EMERGENCY — FluTour passenger needs help!\n'
+      'Driver: ${widget.driver}\n'
+      'Trip: ${widget.pickup} → ${widget.dropoff}\n'
+      'Location: $locationText',
+    );
+
+    // Try WhatsApp first
+    final waUri = Uri.parse('whatsapp://send?text=$message');
+    if (await canLaunchUrl(waUri)) {
+      await launchUrl(waUri);
+      return;
+    }
+
+    // Fallback to SMS
+    final smsUri = Uri.parse('sms:?body=$message');
+    if (await canLaunchUrl(smsUri)) {
+      await launchUrl(smsUri);
+      return;
+    }
+
+    // Last resort — show dialog with location
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Row(children: [
+            Icon(Icons.warning, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Emergency Info'),
+          ]),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Share this with emergency services:'),
+              SizedBox(height: 8),
+              SelectableText(locationText,
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: Text('OK', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  Future<void> _shareTrip() async {
+    try {
+      final boundary = _shareTripKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary != null) {
+        final image = await boundary.toImage(pixelRatio: 2.5);
+        final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+        if (byteData != null) {
+          final bytes = byteData.buffer.asUint8List();
+          final dir = await getTemporaryDirectory();
+          final file = await File('${dir.path}/flutour_trip.png').writeAsBytes(bytes);
+          await Share.shareXFiles([XFile(file.path)], subject: 'My FluTour Ride - Luxor');
+          return;
+        }
+      }
+    } catch (_) {}
+    // Fallback to text
+    final text = 'I\'m on a FluTour ride in Luxor!\nFrom: ${widget.pickup}\nTo: ${widget.dropoff}';
+    Share.share(text, subject: 'My FluTour Ride');
+  }
+
   @override
   void dispose() {
     _ctrl.dispose();
     _tripSub?.cancel();
     _pollTimer?.cancel();
+    _driverLocSub?.cancel();
+    _mapCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final step = _steps[_rideStep];
+    final l = AppLocalizations.of(context);
+    final steps = _steps(context);
+    final step = steps[_rideStep];
     final Color stepColor = step['color'] as Color;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Ride Status'),
+        title: Text(l.rideStatus),
         centerTitle: true,
         automaticallyImplyLeading: false,
       ),
@@ -3222,6 +4145,88 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
             ),
             SizedBox(height: 24),
 
+            // Scheduled ride chip
+            if (widget.scheduledAt != null)
+              Container(
+                margin: EdgeInsets.only(bottom: 12),
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.schedule, color: Colors.blue.shade700, size: 16),
+                    SizedBox(width: 6),
+                    Text(
+                      'Scheduled: ${_formatScheduled(widget.scheduledAt!)}',
+                      style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+
+            // Counter offer banner — shown when driver sends a counter
+            if (_counterPending && _counterFare != null)
+              Container(
+                margin: EdgeInsets.only(bottom: 16),
+                padding: EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.orange.shade300),
+                ),
+                child: Column(
+                  children: [
+                    Row(children: [
+                      Icon(Icons.price_change, color: Colors.orange.shade700),
+                      SizedBox(width: 8),
+                      Text('Driver Counter Offer',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.orange.shade800)),
+                    ]),
+                    SizedBox(height: 8),
+                    Text('${_counterFare!.toStringAsFixed(0)} EGP',
+                        style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.orange.shade800)),
+                    SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () async {
+                              await FirebaseFirestore.instance
+                                  .collection('trips')
+                                  .doc(widget.tripId)
+                                  .update({'negotiationStatus': 'declined_counter'});
+                              setState(() { _counterPending = false; _counterFare = null; });
+                            },
+                            style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                            child: Text('Decline'),
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              await FirebaseFirestore.instance
+                                  .collection('trips')
+                                  .doc(widget.tripId)
+                                  .update({
+                                'fare': _counterFare,
+                                'negotiationStatus': 'agreed',
+                              });
+                              setState(() { _counterPending = false; _counterFare = null; });
+                            },
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade600),
+                            child: Text('Accept', style: TextStyle(color: Colors.white)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
             // Progress steps
             Container(
               padding: EdgeInsets.all(16),
@@ -3232,7 +4237,7 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
                     BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3))
                   ]),
               child: Column(
-                children: List.generate(_steps.length, (i) {
+                children: List.generate(steps.length, (i) {
                   final done = i <= _rideStep;
                   final active = i == _rideStep;
                   return Row(
@@ -3242,7 +4247,7 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
                         height: 32,
                         decoration: BoxDecoration(
                           color: done
-                              ? (_steps[i]['color'] as Color)
+                              ? (steps[i]['color'] as Color)
                               : Colors.grey.shade200,
                           shape: BoxShape.circle,
                         ),
@@ -3257,7 +4262,7 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(_steps[i]['label'] as String,
+                            Text(steps[i]['label'] as String,
                                 style: TextStyle(
                                     fontWeight: active
                                         ? FontWeight.bold
@@ -3291,8 +4296,88 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
             ),
             SizedBox(height: 20),
 
+            // Live map — always shown when coordinates are known
+            if (widget.pickupLat != null && widget.pickupLng != null)
+              Container(
+                height: 220,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3))],
+                ),
+                clipBehavior: Clip.hardEdge,
+                child: FlutterMap(
+                    mapController: _mapCtrl,
+                    options: MapOptions(
+                      initialCenter: _driverLoc ?? (widget.pickupLat != null && widget.pickupLng != null
+                          ? LatLng(widget.pickupLat!, widget.pickupLng!)
+                          : LatLng(25.6872, 32.6396)),
+                      initialZoom: 14.5,
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate: 'https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=rqp9ddE9k50t0V3suet2',
+                        userAgentPackageName: 'com.flutour.passenger',
+                      ),
+                      if (_routePoints != null && _routePoints!.length > 1)
+                        PolylineLayer(
+                          polylines: [
+                            Polyline(
+                              points: _routePoints!,
+                              strokeWidth: 4.0,
+                              color: Colors.blue.shade600,
+                            ),
+                          ],
+                        )
+                      else if (_tripRoutePoints != null && _tripRoutePoints!.length > 1)
+                        PolylineLayer(
+                          polylines: [
+                            Polyline(
+                              points: _tripRoutePoints!,
+                              strokeWidth: 4.0,
+                              color: Colors.teal.shade600,
+                            ),
+                          ],
+                        ),
+                      MarkerLayer(markers: [
+                        if (_driverLoc != null)
+                          Marker(
+                            width: 44,
+                            height: 44,
+                            point: _driverLoc!,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade700,
+                                shape: BoxShape.circle,
+                                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 6)],
+                              ),
+                              child: Icon(Icons.directions_car, color: Colors.white, size: 24),
+                            ),
+                          ),
+                        if (widget.pickupLat != null && widget.pickupLng != null)
+                          Marker(
+                            width: 36,
+                            height: 36,
+                            point: LatLng(widget.pickupLat!, widget.pickupLng!),
+                            child: Icon(Icons.trip_origin, color: Colors.green, size: 32),
+                          ),
+                        if (widget.dropoffLat != null && widget.dropoffLng != null)
+                          Marker(
+                            width: 36,
+                            height: 36,
+                            point: LatLng(widget.dropoffLat!, widget.dropoffLng!),
+                            child: Icon(Icons.location_on, color: Colors.red, size: 32),
+                          ),
+                      ]),
+                    ],
+                  ),
+              ),
+
+            SizedBox(height: 20),
+
             // Driver & ride info
-            Container(
+            RepaintBoundary(
+              key: _shareTripKey,
+              child: Container(
               padding: EdgeInsets.all(16),
               decoration: BoxDecoration(
                   color: Colors.white,
@@ -3302,16 +4387,35 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
                   ]),
               child: Column(
                 children: [
+                  // Vehicle photo strip (shown when available)
+                  if (_vehiclePhotoUrl != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        _vehiclePhotoUrl!,
+                        height: 110,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => SizedBox.shrink(),
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                  ],
                   Row(
                     children: [
                       CircleAvatar(
                         backgroundColor: Colors.blue.shade100,
                         radius: 26,
-                        child: Text(widget.driver[0],
-                            style: TextStyle(
-                                color: Colors.blue.shade700,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20)),
+                        backgroundImage: _driverPhotoUrl != null && _driverPhotoUrl!.isNotEmpty
+                            ? NetworkImage(_driverPhotoUrl!) as ImageProvider
+                            : null,
+                        child: _driverPhotoUrl == null || _driverPhotoUrl!.isEmpty
+                            ? Text(widget.driver.isNotEmpty ? widget.driver[0] : '?',
+                                style: TextStyle(
+                                    color: Colors.blue.shade700,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 20))
+                            : null,
                       ),
                       SizedBox(width: 14),
                       Expanded(
@@ -3327,33 +4431,51 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
                             Row(children: [
                               Icon(Icons.star, size: 14, color: Colors.amber),
                               SizedBox(width: 4),
-                              Text('4.8',
+                              Text(_driverRating > 0 ? _driverRating.toStringAsFixed(1) : '—',
                                   style: TextStyle(
                                       color: Colors.grey.shade600, fontSize: 12)),
                             ]),
                           ],
                         ),
                       ),
-                      Column(
-                        children: [
-                          Icon(Icons.phone, color: Colors.blue.shade700),
-                          SizedBox(height: 4),
-                          Text('Call', style: TextStyle(color: Colors.blue.shade700, fontSize: 12)),
-                        ],
+                      GestureDetector(
+                        onTap: () async {
+                          final phone = _driverPhone ?? '';
+                          if (phone.isEmpty) return;
+                          final uri = Uri.parse('tel:$phone');
+                          if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        },
+                        child: Column(
+                          children: [
+                            Icon(Icons.phone, color: _driverPhone != null ? Colors.blue.shade700 : Colors.grey),
+                            SizedBox(height: 4),
+                            Text(l.call, style: TextStyle(color: _driverPhone != null ? Colors.blue.shade700 : Colors.grey, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: _shareTrip,
+                        child: Column(
+                          children: [
+                            Icon(Icons.share, color: Colors.teal.shade600),
+                            SizedBox(height: 4),
+                            Text('Share', style: TextStyle(color: Colors.teal.shade600, fontSize: 12)),
+                          ],
+                        ),
                       ),
                     ],
                   ),
                   Divider(height: 20),
-                  _infoRow(Icons.trip_origin, Colors.green, 'From', widget.pickup),
+                  _infoRow(Icons.trip_origin, Colors.green, l.from, widget.pickup),
                   SizedBox(height: 6),
-                  _infoRow(Icons.location_on, Colors.red, 'To', widget.dropoff),
+                  _infoRow(Icons.location_on, Colors.red, l.to, widget.dropoff),
                   Divider(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Payment: ${widget.payment}',
+                      Text('${l.paymentMethod}: ${widget.payment}',
                           style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                      Text('EGP ${_fareForType(widget.type).toStringAsFixed(0)}',
+                      Text('EGP ${_displayFare.toStringAsFixed(0)}',
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: Colors.blue.shade700,
@@ -3363,7 +4485,98 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
                 ],
               ),
             ),
+            ),
             SizedBox(height: 20),
+
+            // InstaPay transfer panel — shown only for InstaPay payment once driver accepts
+            if (_rideStep >= 1 && widget.payment == 'InstaPay' && _driverInstapayPhone != null && _driverInstapayPhone!.isNotEmpty)
+              Container(
+                padding: EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.blue.shade300),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.account_balance, color: Colors.blue.shade700),
+                      SizedBox(width: 8),
+                      Text('InstaPay Transfer',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.blue.shade800)),
+                    ]),
+                    SizedBox(height: 12),
+                    Text('Transfer the fare to your driver:',
+                        style: TextStyle(color: Colors.grey.shade700, fontSize: 13)),
+                    SizedBox(height: 10),
+                    Container(
+                      padding: EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.phone, color: Colors.blue.shade700, size: 20),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Driver InstaPay Number',
+                                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                                Builder(builder: (_) {
+                                  final displayNum = (_driverInstapayPhone?.isNotEmpty == true)
+                                      ? _driverInstapayPhone!
+                                      : (_driverPhone?.isNotEmpty == true)
+                                          ? _driverPhone!
+                                          : null;
+                                  return Text(
+                                    displayNum ?? '—',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 20,
+                                        color: Colors.blue.shade800,
+                                        letterSpacing: 1.2),
+                                  );
+                                }),
+                              ],
+                            ),
+                          ),
+                          Builder(builder: (ctx) {
+                            final displayNum = (_driverInstapayPhone?.isNotEmpty == true)
+                                ? _driverInstapayPhone!
+                                : (_driverPhone?.isNotEmpty == true)
+                                    ? _driverPhone!
+                                    : null;
+                            if (displayNum == null) return SizedBox.shrink();
+                            return IconButton(
+                              icon: Icon(Icons.copy, color: Colors.blue.shade600),
+                              tooltip: 'Copy number',
+                              onPressed: () async {
+                                await Clipboard.setData(ClipboardData(text: displayNum));
+                                if (ctx.mounted) {
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                      SnackBar(content: Text('Number copied to clipboard')));
+                                }
+                              },
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: 10),
+                    Text(
+                      'Amount to transfer: EGP ${_displayFare.toStringAsFixed(0)}',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade800, fontSize: 14),
+                    ),
+                    SizedBox(height: 6),
+                    Text('Open your bank app → InstaPay → enter number above → transfer amount.',
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                  ],
+                ),
+              ),
 
             if (_rideStep == 3) ...[
               SizedBox(
@@ -3373,7 +4586,7 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
                   onPressed: () =>
                       Navigator.of(context).popUntil((r) => r.isFirst),
                   icon: Icon(Icons.home, color: Colors.white),
-                  label: Text('Back to Home',
+                  label: Text(l.backToHome,
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 17,
@@ -3406,6 +4619,15 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
           ],
         ),
       ),
+      floatingActionButton: _rideStep >= 1
+          ? FloatingActionButton.small(
+              heroTag: 'sos_fab',
+              onPressed: _triggerSOS,
+              backgroundColor: Colors.red.shade600,
+              child: Text('SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
@@ -3448,8 +4670,9 @@ class _MyTripsTabState extends State<MyTripsTab> {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text('My Trips'), centerTitle: true),
+      appBar: AppBar(title: Text(l.tabTrips), centerTitle: true),
       body: FutureBuilder<List<TripModel>>(
         future: _future,
         builder: (context, snap) {
@@ -3470,7 +4693,7 @@ class _MyTripsTabState extends State<MyTripsTab> {
                     onPressed: () => setState(() => _future =
                         DatabaseService.instance
                             .getTripHistory(AuthService.currentUserId)),
-                    child: Text('Retry'),
+                    child: Text(l.retry),
                   ),
                 ],
               ),
@@ -3488,6 +4711,11 @@ class _MyTripsTabState extends State<MyTripsTab> {
                 child: Row(
                   children: _filters.map((f) {
                     final selected = _filter == f;
+                    final filterLabel = {
+                      'All': l.all,
+                      'Completed': l.completed,
+                      'Cancelled': l.cancelled,
+                    }[f] ?? f;
                     return Padding(
                       padding: EdgeInsets.only(right: 8),
                       child: GestureDetector(
@@ -3500,7 +4728,7 @@ class _MyTripsTabState extends State<MyTripsTab> {
                             border: Border.all(
                                 color: selected ? Colors.blue.shade700 : Colors.grey.shade300),
                           ),
-                          child: Text(f,
+                          child: Text(filterLabel,
                               style: TextStyle(
                                   color: selected ? Colors.white : Colors.grey.shade700,
                                   fontWeight: selected ? FontWeight.bold : FontWeight.normal,
@@ -3519,7 +4747,7 @@ class _MyTripsTabState extends State<MyTripsTab> {
                           children: [
                             Icon(Icons.sailing, size: 64, color: Colors.grey.shade300),
                             SizedBox(height: 16),
-                            Text('No trips yet',
+                            Text(l.noTripsYet,
                                 style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
                             SizedBox(height: 8),
                             Text('Book your first Nile ride!',
@@ -3647,6 +4875,26 @@ class _MyTripsTabState extends State<MyTripsTab> {
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
               Spacer(),
               GestureDetector(
+                onTap: () => _showReceipt(context, trip),
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.teal.shade200)),
+                  child: Row(children: [
+                    Icon(Icons.receipt_long, size: 13, color: Colors.teal.shade700),
+                    SizedBox(width: 4),
+                    Text('Receipt',
+                        style: TextStyle(
+                            color: Colors.teal.shade700,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold)),
+                  ]),
+                ),
+              ),
+              SizedBox(width: 8),
+              GestureDetector(
                 onTap: () => Navigator.push(context,
                     MaterialPageRoute(
                         builder: (_) => VehicleSelectScreen(
@@ -3708,8 +4956,100 @@ class _MyTripsTabState extends State<MyTripsTab> {
     );
   }
 
+  void _showReceipt(BuildContext context, TripModel trip) {
+    final fare = trip.fare;
+    final serviceFee = fare * 0.10;
+    final driverPay = fare * 0.85;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(width: 40, height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)))),
+            SizedBox(height: 16),
+            Row(children: [
+              Icon(Icons.receipt_long, color: Colors.teal.shade700),
+              SizedBox(width: 8),
+              Text('Trip Receipt', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Spacer(),
+              IconButton(
+                icon: Icon(Icons.share, color: Colors.teal.shade600),
+                onPressed: () async {
+                  final receiptText = '''
+🚕 FluTour Trip Receipt
+━━━━━━━━━━━━━━━━━━━━
+Trip ID: ${trip.id.substring(0, 8).toUpperCase()}
+Date: ${trip.createdAt.toString().substring(0, 16)}
+━━━━━━━━━━━━━━━━━━━━
+Vehicle: ${trip.vehicleType.label}
+Driver: ${trip.driverName.isNotEmpty ? trip.driverName : '—'}
+━━━━━━━━━━━━━━━━━━━━
+📍 From: ${trip.pickup}
+📍 To: ${trip.dropoff}
+━━━━━━━━━━━━━━━━━━━━
+Subtotal: ${(fare - serviceFee).toStringAsFixed(0)} EGP
+Service Fee: ${serviceFee.toStringAsFixed(0)} EGP
+💰 Total: ${fare.toStringAsFixed(0)} EGP
+Payment: ${trip.paymentMethod.label}
+━━━━━━━━━━━━━━━━━━━━
+FluTour — Luxor, Egypt
+''';
+                  Share.share(receiptText.trim(), subject: 'FluTour Trip Receipt');
+                },
+              ),
+            ]),
+            Divider(height: 20),
+            _receiptRow('Trip ID', trip.id.substring(0, 8).toUpperCase()),
+            _receiptRow('Date', trip.createdAt.toString().substring(0, 16)),
+            _receiptRow('Vehicle', trip.vehicleType.label),
+            _receiptRow('Driver', trip.driverName.isNotEmpty ? trip.driverName : '—'),
+            Divider(height: 20),
+            _receiptRow('From', trip.pickup),
+            _receiptRow('To', trip.dropoff),
+            Divider(height: 20),
+            _receiptRow('Subtotal', '${(fare - serviceFee).toStringAsFixed(0)} EGP'),
+            _receiptRow('Service Fee (10%)', '${serviceFee.toStringAsFixed(0)} EGP'),
+            Divider(height: 12),
+            _receiptRow('Total', '${fare.toStringAsFixed(0)} EGP', bold: true, color: Colors.teal.shade700),
+            _receiptRow('Payment', trip.paymentMethod.label),
+            SizedBox(height: 16),
+            Center(child: Text('Thank you for riding with FluTour!',
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 12))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _receiptRow(String label, String value, {bool bold = false, Color? color}) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          Spacer(),
+          Text(value, style: TextStyle(
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+              fontSize: bold ? 15 : 13,
+              color: color ?? Colors.black87)),
+        ],
+      ),
+    );
+  }
+
   void _rateDialog(BuildContext context, TripModel trip) {
     int tempRating = 5;
+    final commentCtrl = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -3736,13 +5076,32 @@ class _MyTripsTabState extends State<MyTripsTab> {
                   ),
                 ),
               ),
+              SizedBox(height: 12),
+              TextField(
+                controller: commentCtrl,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  hintText: 'Leave a comment (optional)',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+              ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel')),
+            TextButton(
+              onPressed: () {
+                commentCtrl.dispose();
+                Navigator.pop(ctx);
+              },
+              child: Text('Cancel'),
+            ),
             ElevatedButton(
               onPressed: () async {
-                await DatabaseService.instance.rateTrip(trip.id, tempRating);
+                final comment = commentCtrl.text.trim();
+                commentCtrl.dispose();
+                await DatabaseService.instance.rateTrip(trip.id, tempRating,
+                    comment: comment.isNotEmpty ? comment : null);
                 if (ctx.mounted) Navigator.pop(ctx);
               },
               style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700),
@@ -3756,13 +5115,254 @@ class _MyTripsTabState extends State<MyTripsTab> {
 }
 
 // ===== 14. PROFILE TAB =====
-class ProfileTab extends StatelessWidget {
+class ProfileTab extends StatefulWidget {
+  @override
+  _ProfileTabState createState() => _ProfileTabState();
+}
+
+class _ProfileTabState extends State<ProfileTab> {
+  bool _uploadingPhoto = false;
+
+  Future<void> _pickPhoto() async {
+    setState(() => _uploadingPhoto = true);
+    final error = await AuthService.uploadProfilePhoto();
+    if (!mounted) return;
+    setState(() => _uploadingPhoto = false);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile photo updated!')));
+    }
+  }
+
+  void _editProfile(BuildContext context) {
+    final nameCtrl = TextEditingController(text: AuthService.currentUserName);
+    final phoneCtrl = TextEditingController(text: AuthService.currentUserPhone);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Edit Profile'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration: InputDecoration(
+                labelText: 'Full Name',
+                prefixIcon: Icon(Icons.person),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+            SizedBox(height: 12),
+            TextField(
+              controller: phoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: 'Phone Number',
+                prefixIcon: Icon(Icons.phone),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () { nameCtrl.dispose(); phoneCtrl.dispose(); Navigator.pop(ctx); },
+            child: Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameCtrl.text.trim();
+              final phone = phoneCtrl.text.trim();
+              nameCtrl.dispose(); phoneCtrl.dispose();
+              Navigator.pop(ctx);
+              if (name.isEmpty) return;
+              await DatabaseService.instance.updateProfile(
+                  AuthService.currentUserId, name: name, phone: phone.isNotEmpty ? phone : null);
+              AuthService.updateCachedProfile(name: name, phone: phone);
+              if (mounted) setState(() {});
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700),
+            child: Text('Save', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _changePassword(BuildContext context) {
+    final currentCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+    bool obscureCurrent = true;
+    bool obscureNew = true;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: Text('Change Password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: currentCtrl,
+                obscureText: obscureCurrent,
+                decoration: InputDecoration(
+                  labelText: 'Current Password',
+                  prefixIcon: Icon(Icons.lock_outline),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  suffixIcon: IconButton(
+                    icon: Icon(obscureCurrent ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setS(() => obscureCurrent = !obscureCurrent),
+                  ),
+                ),
+              ),
+              SizedBox(height: 12),
+              TextField(
+                controller: newCtrl,
+                obscureText: obscureNew,
+                decoration: InputDecoration(
+                  labelText: 'New Password (min 6 chars)',
+                  prefixIcon: Icon(Icons.lock),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  suffixIcon: IconButton(
+                    icon: Icon(obscureNew ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setS(() => obscureNew = !obscureNew),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () { currentCtrl.dispose(); newCtrl.dispose(); Navigator.pop(ctx); },
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final current = currentCtrl.text;
+                final newPass = newCtrl.text;
+                currentCtrl.dispose(); newCtrl.dispose();
+                if (newPass.length < 6) {
+                  if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text('Password must be at least 6 characters')));
+                  return;
+                }
+                Navigator.pop(ctx);
+                final error = await AuthService.changePassword(current, newPass);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(error ?? 'Password updated successfully'),
+                    backgroundColor: error == null ? Colors.green : Colors.red,
+                  ));
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700),
+              child: Text('Update', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _contactSupport(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Row(children: [
+          Icon(Icons.support_agent, color: Colors.blue.shade700),
+          SizedBox(width: 8),
+          Text('Contact Support'),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('We\'re here to help!', style: TextStyle(fontWeight: FontWeight.bold)),
+            SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.email, color: Colors.blue),
+              title: Text('support@app.flutour.com'),
+              subtitle: Text('Email support'),
+              onTap: () async {
+                final uri = Uri.parse('mailto:support@app.flutour.com?subject=FluTour Passenger Support');
+                if (await canLaunchUrl(uri)) await launchUrl(uri);
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.chat, color: Colors.green),
+              title: Text('WhatsApp'),
+              subtitle: Text('01020773548'),
+              onTap: () async {
+                final uri = Uri.parse('https://wa.me/201020773548');
+                if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text('Close')),
+        ],
+      ),
+    );
+  }
+
+  void _showFAQ(BuildContext context) {
+    final faqs = [
+      ('How do I book a felucca?', 'Tap "Book a Ride" on the home screen, choose Felucca as vehicle type, pick your pickup and dropoff, then confirm booking.'),
+      ('How is the fare calculated?', 'Felucca fares are time-based. Up to 15 min: 50 EGP, up to 30 min: 80 EGP, up to 60 min: 120 EGP. Horse carriage fares are distance-based.'),
+      ('How do I pay?', 'You can pay in cash, credit card, or mobile wallet (InstaPay). Select your preferred method before confirming.'),
+      ('Can I cancel a trip?', 'Yes, tap "Cancel" on the searching or booking screen and select a reason.'),
+      ('How do I share my ride?', 'Tap the Share icon on the active ride screen to send your ride details to a contact.'),
+    ];
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Help & FAQ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              SizedBox(height: 12),
+              SizedBox(
+                height: 320,
+                child: ListView.separated(
+                  itemCount: faqs.length,
+                  separatorBuilder: (_, __) => Divider(),
+                  itemBuilder: (_, i) => ExpansionTile(
+                    title: Text(faqs[i].$1, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                    children: [Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Text(faqs[i].$2, style: TextStyle(color: Colors.grey.shade700, fontSize: 13)),
+                    )],
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(onPressed: () => Navigator.pop(context), child: Text('Close')),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final name = AuthService.currentUserName;
     final phone = AuthService.currentUserPhone;
+    final photoUrl = AuthService.currentPhotoUrl;
     return Scaffold(
-      appBar: AppBar(title: Text('My Profile'), centerTitle: true),
+      appBar: AppBar(title: Text(l.profile), centerTitle: true),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(20),
         child: Column(
@@ -3779,30 +5379,42 @@ class ProfileTab extends StatelessWidget {
                   ]),
               child: Column(
                 children: [
-                  Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 44,
-                        backgroundColor: Colors.blue.shade100,
-                        child: Text(
-                          name.isNotEmpty ? name[0] : 'P',
-                          style: TextStyle(
-                              fontSize: 36,
-                              color: Colors.blue.shade700,
-                              fontWeight: FontWeight.bold),
+                  GestureDetector(
+                    onTap: _uploadingPhoto ? null : _pickPhoto,
+                    child: Stack(
+                      children: [
+                        _uploadingPhoto
+                            ? CircleAvatar(
+                                radius: 44,
+                                backgroundColor: Colors.blue.shade100,
+                                child: CircularProgressIndicator(
+                                    color: Colors.blue.shade700, strokeWidth: 2))
+                            : (photoUrl.isNotEmpty
+                                ? CircleAvatar(
+                                    radius: 44,
+                                    backgroundImage: NetworkImage(photoUrl))
+                                : CircleAvatar(
+                                    radius: 44,
+                                    backgroundColor: Colors.blue.shade100,
+                                    child: Text(
+                                      name.isNotEmpty ? name[0].toUpperCase() : 'P',
+                                      style: TextStyle(
+                                          fontSize: 36,
+                                          color: Colors.blue.shade700,
+                                          fontWeight: FontWeight.bold),
+                                    ))),
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            padding: EdgeInsets.all(5),
+                            decoration: BoxDecoration(
+                                color: Colors.blue.shade700, shape: BoxShape.circle),
+                            child: Icon(Icons.camera_alt, size: 14, color: Colors.white),
+                          ),
                         ),
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: Container(
-                          padding: EdgeInsets.all(5),
-                          decoration: BoxDecoration(
-                              color: Colors.blue.shade700, shape: BoxShape.circle),
-                          child: Icon(Icons.edit, size: 14, color: Colors.white),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   SizedBox(height: 14),
                   Text(name,
@@ -3824,18 +5436,53 @@ class ProfileTab extends StatelessWidget {
 
             // Account section
             _section('Account Settings', [
-              _action(Icons.person_outline, 'Edit Profile', Colors.blue, () {}),
-              _action(Icons.lock_outline, 'Change Password', Colors.orange, () {}),
-              _action(Icons.notifications_outlined, 'Notifications', Colors.purple, () {}),
+              _action(Icons.person_outline, 'Edit Profile', Colors.blue, () => _editProfile(context)),
+              _action(Icons.lock_outline, 'Change Password', Colors.orange, () => _changePassword(context)),
+              _action(Icons.notifications_outlined, 'Notifications', Colors.purple, () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => NotificationsScreen()));
+              }),
             ]),
             SizedBox(height: 16),
 
             // Support section
             _section('Support', [
-              _action(Icons.help_outline, 'Help & FAQ', Colors.teal, () {}),
-              _action(Icons.support_agent, 'Contact Support', Colors.blue, () {}),
-              _action(Icons.star_outline, 'Rate the App', Colors.amber, () {}),
+              _action(Icons.help_outline, 'Help & FAQ', Colors.teal, () => _showFAQ(context)),
+              _action(Icons.support_agent, 'Contact Support', Colors.blue, () => _contactSupport(context)),
+              _action(Icons.star_outline, 'Rate the App', Colors.amber, () async {
+                final uri = Uri.parse('https://play.google.com/store/apps/details?id=app.flutour.passenger');
+                if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }),
             ]),
+            SizedBox(height: 16),
+
+            // Language toggle
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3))
+                  ]),
+              child: ListTile(
+                leading: Icon(Icons.language, color: Colors.blue.shade700),
+                title: Text(l.language),
+                trailing: DropdownButton<String>(
+                  value: Localizations.localeOf(context).languageCode,
+                  underline: SizedBox(),
+                  items: [
+                    DropdownMenuItem(value: 'en', child: Text(l.english)),
+                    DropdownMenuItem(value: 'ar', child: Text(l.arabic)),
+                  ],
+                  onChanged: (code) {
+                    if (code != null) {
+                      context.read<LocaleProvider>().setLocale(Locale(code));
+                    }
+                  },
+                ),
+              ),
+            ),
             SizedBox(height: 16),
 
             // Logout
@@ -3854,7 +5501,7 @@ class ProfileTab extends StatelessWidget {
                   }
                 },
                 icon: Icon(Icons.logout, color: Colors.red),
-                label: Text('Logout',
+                label: Text(l.signOut,
                     style: TextStyle(
                         color: Colors.red, fontSize: 16, fontWeight: FontWeight.bold)),
                 style: OutlinedButton.styleFrom(
@@ -4205,10 +5852,20 @@ class _HantourScenePainter extends CustomPainter {
 class SearchingDriverScreen extends StatefulWidget {
   final String pickup, dropoff, vehicleType, driver, payment;
   final double fare;
+  final double proposedFare;
+  final double? pickupLat;
+  final double? pickupLng;
+  final double? dropoffLat;
+  final double? dropoffLng;
+  final String? scheduledAt;
+
   const SearchingDriverScreen({
     required this.pickup, required this.dropoff,
     required this.vehicleType, required this.driver,
     required this.payment, required this.fare,
+    this.proposedFare = 0,
+    this.pickupLat, this.pickupLng, this.dropoffLat, this.dropoffLng,
+    this.scheduledAt,
   });
   @override
   _SearchingDriverScreenState createState() => _SearchingDriverScreenState();
@@ -4221,6 +5878,9 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
   StreamSubscription? _tripSub;
   Timer? _pollTimer;
   bool _navigated = false;
+  List<Map<String, dynamic>> _driverOffers = [];
+  StreamSubscription? _offersSub;
+  bool _accepting = false;
 
   @override
   void initState() {
@@ -4231,10 +5891,11 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
     _createTripAndListen();
   }
 
-  void _navigateToConfirmed(String? driverName) {
+  void _navigateToConfirmed(String driverName) {
     if (_navigated || !mounted) return;
     _navigated = true;
     _tripSub?.cancel();
+    _offersSub?.cancel();
     _pollTimer?.cancel();
     Navigator.pushReplacement(
         context,
@@ -4242,11 +5903,16 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
             builder: (_) => BookingConfirmedScreen(
                   vehicleId: '',
                   type: widget.vehicleType,
-                  driver: driverName ?? widget.driver,
+                  driver: driverName,
                   pickup: widget.pickup,
                   dropoff: widget.dropoff,
                   payment: widget.payment,
                   tripId: _tripId,
+                  pickupLat: widget.pickupLat,
+                  pickupLng: widget.pickupLng,
+                  dropoffLat: widget.dropoffLat,
+                  dropoffLng: widget.dropoffLng,
+                  scheduledAt: widget.scheduledAt,
                 )));
   }
 
@@ -4254,7 +5920,7 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
     try {
       final payMethod = widget.payment == 'Credit Card'
           ? PaymentMethod.creditCard
-          : widget.payment == 'Mobile Wallet'
+          : widget.payment == 'Mobile Wallet' || widget.payment == 'InstaPay'
               ? PaymentMethod.mobileWallet
               : PaymentMethod.cash;
       final trip = await DatabaseService.instance.requestTrip(
@@ -4265,33 +5931,45 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
         vehicleType: VehicleTypeX.fromString(widget.vehicleType),
         pickup: widget.pickup,
         dropoff: widget.dropoff,
-        fare: widget.fare,
+        fare: widget.proposedFare > 0 ? widget.proposedFare : widget.fare,
         paymentMethod: payMethod,
+        pickupLat: widget.pickupLat,
+        pickupLng: widget.pickupLng,
+        dropoffLat: widget.dropoffLat,
+        dropoffLng: widget.dropoffLng,
+        scheduledAt: widget.scheduledAt,
       );
       _tripId = trip.id;
 
-      // Real-time listener — primary mechanism
+      // Listen to trip status (for when passenger accepts an offer)
       _tripSub = FirebaseFirestore.instance
           .collection('trips')
           .doc(_tripId)
           .snapshots()
-          .listen(
-        (doc) {
-          if (!mounted || _navigated) return;
-          if (!doc.exists) return;
-          final status = doc.data()?['status'] ?? '';
-          final driverName = doc.data()?['driverName'] as String?;
-          if (status == 'accepted' || status == 'in_progress') {
-            _navigateToConfirmed(driverName);
-          }
-        },
-        onError: (_) {
-          // Listener failed (likely a Firestore permission error on status change).
-          // The polling timer below will catch the acceptance instead.
-        },
-      );
+          .listen((doc) {
+        if (!mounted || _navigated) return;
+        if (!doc.exists) return;
+        final status = doc.data()?['status'] ?? '';
+        final driverName = doc.data()?['driverName'] as String? ?? '';
+        if (status == 'accepted' || status == 'in_progress') {
+          _navigateToConfirmed(driverName);
+        }
+      }, onError: (_) {});
 
-      // Polling fallback — fires every 5 s in case the listener misses an update
+      // Listen to driver offers subcollection
+      _offersSub = FirebaseFirestore.instance
+          .collection('trips')
+          .doc(_tripId)
+          .collection('offers')
+          .snapshots()
+          .listen((snap) {
+        if (!mounted) return;
+        setState(() {
+          _driverOffers = snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+        });
+      }, onError: (_) {});
+
+      // Polling fallback
       _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
         if (_tripId == null || _navigated || !mounted) return;
         try {
@@ -4301,7 +5979,7 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
               .get();
           if (!doc.exists) return;
           final status = doc.data()?['status'] ?? '';
-          final driverName = doc.data()?['driverName'] as String?;
+          final driverName = doc.data()?['driverName'] as String? ?? '';
           if (status == 'accepted' || status == 'in_progress') {
             _navigateToConfirmed(driverName);
           }
@@ -4317,13 +5995,33 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
     }
   }
 
+  Future<void> _acceptOffer(Map<String, dynamic> offer) async {
+    if (_accepting || _tripId == null) return;
+    setState(() => _accepting = true);
+    try {
+      await DatabaseService.instance.acceptDriverOffer(
+        tripId: _tripId!,
+        driverUid: offer['driverUid'] as String? ?? offer['id'] as String,
+        driverName: offer['driverName'] as String? ?? 'Driver',
+        driverPhone: offer['driverPhone'] as String? ?? '',
+        instapayPhone: offer['instapayPhone'] as String? ?? '',
+        agreedFare: (offer['suggestedFare'] as num?)?.toDouble() ?? 0.0,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _accepting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to accept: $e')));
+      }
+    }
+  }
+
   @override
   void dispose() {
     _pulse.dispose();
     _tripSub?.cancel();
+    _offersSub?.cancel();
     _pollTimer?.cancel();
-    // If the passenger navigated away (back button) without a driver accepting,
-    // cancel the trip so it doesn't accumulate as a stale 'requested' entry.
     if (_tripId != null && !_navigated) {
       DatabaseService.instance.cancelTrip(_tripId!).catchError((_) {});
     }
@@ -4331,93 +6029,248 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
   }
 
   void _cancel() {
+    String? _selectedReason;
+    final reasons = [
+      'Driver too far away',
+      'Changed my mind',
+      'Wrong pickup location',
+      'Found another ride',
+      'Other',
+    ];
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Cancel Booking?'),
-        content: Text('Are you sure you want to cancel this booking?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context), child: Text('No')),
-          ElevatedButton(
-            onPressed: () async {
-              if (_tripId != null) {
-                await DatabaseService.instance.cancelTrip(_tripId!);
-              }
-              if (context.mounted) {
-                Navigator.pop(context);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Booking cancelled')));
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: Text('Yes, Cancel', style: TextStyle(color: Colors.white)),
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: Text('Cancel Booking?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Please select a reason:', style: TextStyle(color: Colors.grey.shade700)),
+              SizedBox(height: 8),
+              ...reasons.map((r) => RadioListTile<String>(
+                value: r,
+                groupValue: _selectedReason,
+                title: Text(r, style: TextStyle(fontSize: 14)),
+                onChanged: (v) => setDialog(() => _selectedReason = v),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+              )),
+            ],
           ),
-        ],
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Keep')),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                if (_tripId != null) {
+                  DatabaseService.instance.cancelTrip(_tripId!, reason: _selectedReason ?? '').catchError((_) {});
+                }
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: Text('Cancel Booking', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Color(0xFFF4F6FA),
-      body: SafeArea(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Spacer(),
-            AnimatedBuilder(
-              animation: _pulse,
-              builder: (_, child) => Transform.scale(
-                scale: 0.92 + _pulse.value * 0.16,
-                child: child,
-              ),
-              child: Container(
-                width: 120, height: 120,
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade700,
-                  shape: BoxShape.circle,
-                  boxShadow: [BoxShadow(
-                      color: Colors.blue.withValues(alpha: 0.4),
-                      blurRadius: 30, spreadRadius: 8)],
-                ),
-                child: Icon(Icons.sailing, size: 60, color: Colors.white),
-              ),
-            ),
-            SizedBox(height: 36),
-            Text('Searching for driver...',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            SizedBox(height: 10),
-            Text('This usually takes 30–60 seconds',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
-            SizedBox(height: 24),
-            SizedBox(
-              width: 200,
-              child: LinearProgressIndicator(
-                backgroundColor: Colors.grey.shade200,
-                color: Colors.blue.shade700,
-              ),
-            ),
-            SizedBox(height: 16),
-            Text('${widget.pickup} → ${widget.dropoff}',
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                textAlign: TextAlign.center),
-            Spacer(),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-              child: TextButton(
-                onPressed: _cancel,
-                child: Text('Cancel Booking',
-                    style: TextStyle(
-                        color: Colors.red.shade600,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600)),
-              ),
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('Driver Offers'),
+          centerTitle: true,
+          automaticallyImplyLeading: false,
+          backgroundColor: Colors.blue.shade700,
+          titleTextStyle: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+          actions: [
+            TextButton(
+              onPressed: _cancel,
+              child: Text('Cancel', style: TextStyle(color: Colors.white70)),
             ),
           ],
         ),
+        body: Column(
+          children: [
+            // Route + offered fare summary
+            Container(
+              color: Colors.white,
+              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Column(
+                children: [
+                  Row(children: [
+                    Icon(Icons.trip_origin, size: 14, color: Colors.green),
+                    SizedBox(width: 6),
+                    Expanded(child: Text(widget.pickup, style: TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis)),
+                  ]),
+                  SizedBox(height: 4),
+                  Row(children: [
+                    Icon(Icons.location_on, size: 14, color: Colors.red),
+                    SizedBox(width: 6),
+                    Expanded(child: Text(widget.dropoff, style: TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis)),
+                  ]),
+                  SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Your offer: ${(widget.proposedFare > 0 ? widget.proposedFare : widget.fare).toStringAsFixed(0)} EGP',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade700)),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(widget.vehicleType,
+                            style: TextStyle(color: Colors.blue.shade700, fontSize: 12, fontWeight: FontWeight.w600)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Divider(height: 1),
+
+            // Offers list or searching animation
+            Expanded(
+              child: _driverOffers.isEmpty
+                  ? _buildSearchingState()
+                  : ListView.builder(
+                      padding: EdgeInsets.all(16),
+                      itemCount: _driverOffers.length,
+                      itemBuilder: (ctx, i) => _buildOfferCard(_driverOffers[i]),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedBuilder(
+            animation: _pulse,
+            builder: (_, __) => Container(
+              width: 100 + _pulse.value * 20,
+              height: 100 + _pulse.value * 20,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.blue.shade100.withOpacity(0.5 + _pulse.value * 0.3),
+              ),
+              child: Center(
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.blue.shade700,
+                  ),
+                  child: Icon(Icons.search, color: Colors.white, size: 40),
+                ),
+              ),
+            ),
+          ),
+          SizedBox(height: 24),
+          Text('Looking for drivers...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          SizedBox(height: 8),
+          Text('Drivers will send you their fare offers', style: TextStyle(color: Colors.grey.shade600)),
+          SizedBox(height: 4),
+          Text('Choose the best offer for you', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOfferCard(Map<String, dynamic> offer) {
+    final driverName = offer['driverName'] as String? ?? 'Driver';
+    final fare = (offer['suggestedFare'] as num?)?.toDouble() ?? 0.0;
+    final rating = (offer['rating'] as num?)?.toDouble() ?? 0.0;
+    final photoUrl = offer['photoUrl'] as String? ?? '';
+    final offeredFare = widget.proposedFare > 0 ? widget.proposedFare : widget.fare;
+    final isLower = fare < offeredFare;
+    final isHigher = fare > offeredFare;
+
+    return Container(
+      margin: EdgeInsets.only(bottom: 12),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isLower ? Colors.green.shade200 : isHigher ? Colors.orange.shade200 : Colors.grey.shade200,
+        ),
+        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3))],
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: Colors.teal.shade100,
+            backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+            child: photoUrl.isEmpty
+                ? Text(driverName.isNotEmpty ? driverName[0].toUpperCase() : 'D',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal.shade700, fontSize: 20))
+                : null,
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(driverName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                SizedBox(height: 2),
+                Row(children: [
+                  Icon(Icons.star, size: 14, color: Colors.amber),
+                  SizedBox(width: 2),
+                  Text(rating > 0 ? rating.toStringAsFixed(1) : 'New',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                ]),
+                SizedBox(height: 4),
+                if (isLower)
+                  Text('Lower than your offer!',
+                      style: TextStyle(color: Colors.green.shade700, fontSize: 11, fontWeight: FontWeight.w600))
+                else if (isHigher)
+                  Text('Higher than your offer',
+                      style: TextStyle(color: Colors.orange.shade700, fontSize: 11))
+                else
+                  Text('Matches your offer',
+                      style: TextStyle(color: Colors.blue.shade700, fontSize: 11)),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text('${fare.toStringAsFixed(0)} EGP',
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: isLower ? Colors.green.shade700 : isHigher ? Colors.orange.shade700 : Colors.blue.shade700)),
+              SizedBox(height: 8),
+              ElevatedButton(
+                onPressed: _accepting ? null : () => _acceptOffer(offer),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal.shade700,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  minimumSize: Size(0, 0),
+                ),
+                child: _accepting
+                    ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : Text('Accept', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -4427,10 +6280,12 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
 class ActiveTripScreen extends StatefulWidget {
   final String driverName, vehicleType, pickup, dropoff;
   final double rating, fareTotal;
+  final String? driverPhone;
   const ActiveTripScreen({
     required this.driverName, required this.vehicleType,
     required this.rating, required this.pickup,
     required this.dropoff, required this.fareTotal,
+    this.driverPhone,
   });
   @override
   _ActiveTripScreenState createState() => _ActiveTripScreenState();
@@ -4441,6 +6296,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   final _statuses = ['Driver en route', 'Driver arrived', 'Trip in progress'];
   LatLng _driverPos = LatLng(25.6950, 32.6380);
   StreamSubscription<LatLngPoint>? _locSub;
+  DateTime? _tripStartedAt;
 
   @override
   void initState() {
@@ -4458,8 +6314,13 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
 
   void _advance() {
     if (_statusIdx < _statuses.length - 1) {
+      // Record when trip actually begins
+      if (_statusIdx == 1) _tripStartedAt = DateTime.now();
       setState(() => _statusIdx++);
     } else {
+      final durationMin = _tripStartedAt != null
+          ? DateTime.now().difference(_tripStartedAt!).inMinutes.clamp(1, 999)
+          : 0;
       Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -4467,8 +6328,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                     driverName: widget.driverName,
                     pickup: widget.pickup,
                     dropoff: widget.dropoff,
-                    distanceKm: 4.2,
-                    durationMin: 14,
+                    distanceKm: 0.0,
+                    durationMin: durationMin,
                     fareTotal: widget.fareTotal,
                   )));
     }
@@ -4647,9 +6508,16 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _iconBtn(Icons.phone, Colors.grey, () =>
+                      _iconBtn(Icons.phone, Colors.blue, () async {
+                        final phone = widget.driverPhone;
+                        if (phone != null && phone.isNotEmpty) {
+                          final uri = Uri.parse('tel:$phone');
+                          if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        } else {
                           ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Calling driver...')))),
+                              const SnackBar(content: Text('Driver phone unavailable')));
+                        }
+                      }),
                       _iconBtn(Icons.warning_amber_rounded, Colors.red, _sos),
                       _iconBtn(Icons.message, Colors.grey, () =>
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -4715,6 +6583,7 @@ class _TripCompletionScreenState extends State<TripCompletionScreen> {
   int _stars = 0;
   final _commentCtrl = TextEditingController();
   bool _submitting = false;
+  final GlobalKey _receiptKey = GlobalKey();
 
   @override
   void dispose() {
@@ -4748,13 +6617,33 @@ class _TripCompletionScreenState extends State<TripCompletionScreen> {
         (_) => false);
   }
 
+  Future<void> _shareReceipt() async {
+    try {
+      final boundary = _receiptKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary != null) {
+        final image = await boundary.toImage(pixelRatio: 2.5);
+        final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+        if (byteData != null) {
+          final bytes = byteData.buffer.asUint8List();
+          final dir = await getTemporaryDirectory();
+          final file = await File('${dir.path}/flutour_receipt.png').writeAsBytes(bytes);
+          await Share.shareXFiles([XFile(file.path)], subject: 'FluTour Ride Receipt - Luxor');
+          return;
+        }
+      }
+    } catch (_) {}
+    final text = 'FluTour Ride Receipt\nFrom: ${widget.pickup}\nTo: ${widget.dropoff}\nFare: ${widget.fareTotal.toStringAsFixed(0)} EGP';
+    Share.share(text, subject: 'FluTour Ride Receipt');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return PopScope(
       canPop: false,
       child: Scaffold(
         appBar: AppBar(
-          title: Text('Trip Complete'),
+          title: Text(l.tripComplete),
           centerTitle: true,
           automaticallyImplyLeading: false,
         ),
@@ -4765,41 +6654,68 @@ class _TripCompletionScreenState extends State<TripCompletionScreen> {
               SizedBox(height: 16),
               Icon(Icons.check_circle, color: Colors.green.shade600, size: 72),
               SizedBox(height: 12),
-              Text('Trip Complete!',
+              Text(l.tripComplete,
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               SizedBox(height: 6),
               Text('Thanks for riding with ${widget.driverName}',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
                   textAlign: TextAlign.center),
               SizedBox(height: 24),
-              // Summary card
-              Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3))],
+              // Summary card (shareable)
+              RepaintBoundary(
+                key: _receiptKey,
+                child: Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3))],
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.directions_boat, color: Colors.teal.shade600, size: 20),
+                          SizedBox(width: 6),
+                          Text('FluTour Receipt',
+                              style: TextStyle(fontWeight: FontWeight.bold,
+                                  fontSize: 15, color: Colors.teal.shade700)),
+                        ],
+                      ),
+                      Divider(height: 20),
+                      _summaryRow(Icons.route, 'Distance', '${widget.distanceKm.toStringAsFixed(1)} km'),
+                      Divider(height: 20),
+                      _summaryRow(Icons.timer, 'Duration', '${widget.durationMin} min'),
+                      Divider(height: 20),
+                      _summaryRow(Icons.attach_money, 'Fare',
+                          '${widget.fareTotal.toStringAsFixed(0)} EGP',
+                          valueColor: Colors.teal.shade700),
+                      Divider(height: 20),
+                      _summaryRow(Icons.trip_origin, l.from, widget.pickup),
+                      Divider(height: 12),
+                      _summaryRow(Icons.location_on, l.to, widget.dropoff),
+                    ],
+                  ),
                 ),
-                child: Column(
-                  children: [
-                    _summaryRow(Icons.route, 'Distance', '${widget.distanceKm.toStringAsFixed(1)} km'),
-                    Divider(height: 20),
-                    _summaryRow(Icons.timer, 'Duration', '${widget.durationMin} min'),
-                    Divider(height: 20),
-                    _summaryRow(Icons.attach_money, 'Fare',
-                        '${widget.fareTotal.toStringAsFixed(0)} EGP',
-                        valueColor: Colors.teal.shade700),
-                    Divider(height: 20),
-                    _summaryRow(Icons.trip_origin, 'From', widget.pickup),
-                    Divider(height: 12),
-                    _summaryRow(Icons.location_on, 'To', widget.dropoff),
-                  ],
+              ),
+              SizedBox(height: 12),
+              // Share receipt button
+              OutlinedButton.icon(
+                onPressed: _shareReceipt,
+                icon: Icon(Icons.share, size: 18),
+                label: Text('Share Receipt'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.teal.shade700,
+                  side: BorderSide(color: Colors.teal.shade300),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 ),
               ),
               SizedBox(height: 24),
               // Star rating
-              Text('Rate your driver',
+              Text(l.rateYourDriver,
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               SizedBox(height: 12),
               Row(
@@ -4842,7 +6758,7 @@ class _TripCompletionScreenState extends State<TripCompletionScreen> {
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14)),
                         ),
-                        child: Text('Submit Rating',
+                        child: Text(l.submitRating,
                             style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
@@ -4855,7 +6771,7 @@ class _TripCompletionScreenState extends State<TripCompletionScreen> {
                     context,
                     MaterialPageRoute(builder: (_) => PassengerHomeScreen()),
                     (_) => false),
-                child: Text('Skip',
+                child: Text(l.skip,
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
               ),
             ],
@@ -4883,6 +6799,101 @@ class _TripCompletionScreenState extends State<TripCompletionScreen> {
               textAlign: TextAlign.end),
         ),
       ],
+    );
+  }
+}
+
+// ===== NOTIFICATIONS SCREEN =====
+class NotificationsScreen extends StatefulWidget {
+  @override
+  _NotificationsScreenState createState() => _NotificationsScreenState();
+}
+
+class _NotificationsScreenState extends State<NotificationsScreen> {
+  late Future<List<NotificationModel>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = DatabaseService.instance.getNotifications(AuthService.currentUserId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Notifications'), centerTitle: true),
+      body: FutureBuilder<List<NotificationModel>>(
+        future: _future,
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+          final items = snap.data ?? [];
+          if (items.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.notifications_none, size: 64, color: Colors.grey.shade300),
+                  SizedBox(height: 16),
+                  Text('No notifications yet',
+                      style: TextStyle(color: Colors.grey.shade500, fontSize: 16)),
+                ],
+              ),
+            );
+          }
+          return ListView.separated(
+            padding: EdgeInsets.all(16),
+            itemCount: items.length,
+            separatorBuilder: (_, __) => SizedBox(height: 8),
+            itemBuilder: (_, i) {
+              final n = items[i];
+              return Container(
+                padding: EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: n.read ? Colors.white : Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade100,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.notifications, color: Colors.blue.shade700, size: 18),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(n.title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          SizedBox(height: 4),
+                          Text(n.body, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                          SizedBox(height: 4),
+                          Text(
+                            '${n.createdAt.day}/${n.createdAt.month}/${n.createdAt.year}',
+                            style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!n.read)
+                      Container(
+                        width: 8, height: 8,
+                        decoration: BoxDecoration(color: Colors.blue, shape: BoxShape.circle),
+                      ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
