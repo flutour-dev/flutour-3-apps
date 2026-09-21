@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -366,6 +367,101 @@ class DriverAuthService {
     }
   }
 
+  /// Sign in with Apple — returns null on success, error string on failure,
+  /// '__register__' if this is a new Apple user who needs to complete registration.
+  static Future<String?> signInWithApple() async {
+    try {
+      final UserCredential cred;
+      final String pendingName;
+      if (Platform.isAndroid) {
+        final provider = OAuthProvider('apple.com')
+          ..addScope('email')
+          ..addScope('name');
+        cred = await FirebaseAuth.instance.signInWithProvider(provider);
+        pendingName = cred.user?.displayName ?? '';
+      } else {
+        final appleCredential = await SignInWithApple.getAppleIDCredential(
+          scopes: [
+            AppleIDAuthorizationScopes.email,
+            AppleIDAuthorizationScopes.fullName,
+          ],
+        );
+        final oauthCredential = OAuthProvider('apple.com').credential(
+          idToken: appleCredential.identityToken,
+          accessToken: appleCredential.authorizationCode,
+        );
+        cred = await FirebaseAuth.instance.signInWithCredential(oauthCredential);
+        pendingName = appleCredential.givenName != null
+            ? '${appleCredential.givenName} ${appleCredential.familyName ?? ''}'.trim()
+            : cred.user?.displayName ?? '';
+      }
+      final uid = cred.user!.uid;
+      final doc = await FirebaseFirestore.instance.collection('drivers').doc(uid).get();
+      if (!doc.exists) {
+        // New Apple user — keep authenticated and redirect to registration
+        _pendingGoogleRegistration = true;
+        _googleDisplayName = pendingName;
+        _googlePhotoUrl = cred.user?.photoURL ?? '';
+        return '__register__';
+      }
+      _pendingGoogleRegistration = false;
+      final status = doc.data()?['status'] ?? 'pending';
+      if (status == 'pending') {
+        await FirebaseAuth.instance.signOut();
+        return 'Your account is pending admin approval';
+      }
+      if (status == 'rejected' || status == 'suspended') {
+        await FirebaseAuth.instance.signOut();
+        return 'Your account has been $status';
+      }
+      _currentDriverName = doc.data()?['name'] ?? cred.user?.displayName ?? 'Driver';
+      _currentDriverPhone = doc.data()?['phone'] ?? '';
+      _currentVehicleType = VehicleTypeX.fromString(doc.data()?['vehicleType'] ?? '').value;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('driver_name', _currentDriverName);
+      await prefs.setString('driver_phone', _currentDriverPhone);
+      await prefs.setString('driver_vehicle_type', _currentVehicleType);
+      return null;
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) return null; // user cancelled
+      return 'Apple sign-in failed: ${e.message}';
+    } on FirebaseAuthException catch (e) {
+      return e.message ?? 'Apple sign-in failed';
+    } catch (e) {
+      return 'Apple sign-in failed: $e';
+    }
+  }
+
+  /// Permanently deletes the driver's Firebase Auth account and Firestore data.
+  /// Returns null on success, error string on failure.
+  static Future<String?> deleteAccount() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return 'Not signed in';
+      final uid = user.uid;
+      // Delete Firestore driver document
+      await FirebaseFirestore.instance.collection('drivers').doc(uid).delete();
+      // Remove location from Realtime DB if present
+      try {
+        DriverLocationService.stopBroadcasting(uid);
+      } catch (_) {}
+      // Delete Firebase Auth account (requires recent sign-in)
+      await user.delete();
+      // Clear local session
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      _currentDriverName = '';
+      _currentDriverPhone = '';
+      _currentVehicleType = '';
+      return null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'requires-recent-login') return '__reauth__';
+      return e.message ?? 'Failed to delete account';
+    } catch (e) {
+      return 'Failed to delete account: $e';
+    }
+  }
+
   /// Called after a Google-signed-in user completes the driver registration form.
   static Future<String?> completeGoogleRegistration(
       String vehicleId, String vehicleType, String phone) async {
@@ -566,6 +662,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   bool _obscure = true;
   bool _isLoading = false;
   bool _googleLoading = false;
+  bool _appleLoading = false;
 
   @override
   void dispose() {
@@ -755,6 +852,40 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                       ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                       : Icon(Icons.g_mobiledata, size: 26, color: Colors.red.shade700),
                   label: Text(AppLocalizations.of(context).continueWithGoogle,
+                      style: TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w600)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.grey.shade300),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+              ),
+              SizedBox(height: 12),
+              // ── Sign in with Apple ────────────────────────────────────────
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed: _appleLoading ? null : () async {
+                    setState(() => _appleLoading = true);
+                    final error = await DriverAuthService.signInWithApple();
+                    if (!mounted) return;
+                    setState(() => _appleLoading = false);
+                    if (error == null) {
+                      Navigator.pushReplacement(context,
+                          MaterialPageRoute(builder: (_) => DriverHomeScreen()));
+                    } else if (error == '__register__') {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => DriverGoogleRegisterScreen()));
+                    } else if (error.isNotEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(error)));
+                    }
+                  },
+                  icon: _appleLoading
+                      ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : Icon(Icons.apple, size: 24, color: Colors.black),
+                  label: Text(AppLocalizations.of(context).continueWithApple,
                       style: TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w600)),
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(color: Colors.grey.shade300),
@@ -4270,6 +4401,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                       );
                     }
                   }),
+                  _actionRow(Icons.delete_forever, l.deleteAccount, Colors.red.shade900, () => _confirmDeleteAccount(context)),
                 ]),
                 SizedBox(height: 20),
               ],
@@ -4462,6 +4594,51 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: Text(l.close)),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteAccount(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Row(children: [
+          Icon(Icons.delete_forever, color: Colors.red.shade900),
+          SizedBox(width: 8),
+          Text(l.deleteAccountTitle),
+        ]),
+        content: Text(l.deleteAccountWarning),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l.cancel),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final result = await DriverAuthService.deleteAccount();
+              if (!context.mounted) return;
+              if (result == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(l.accountDeleted), backgroundColor: Colors.teal));
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => DriverLoginScreen()),
+                  (_) => false,
+                );
+              } else if (result == '__reauth__') {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(l.reAuthRequired), backgroundColor: Colors.orange));
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(result), backgroundColor: Colors.red));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade900),
+            child: Text(l.deleteAccountConfirm, style: TextStyle(color: Colors.white)),
+          ),
         ],
       ),
     );

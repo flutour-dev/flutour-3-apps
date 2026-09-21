@@ -24,6 +24,7 @@ import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:convert';
@@ -262,6 +263,88 @@ class AuthService {
       return e.message ?? 'Google sign-in failed';
     } catch (e) {
       return 'Google sign-in failed: $e';
+    }
+  }
+
+  static Future<String?> signInWithApple() async {
+    try {
+      final UserCredential cred;
+      final String displayName;
+      if (Platform.isAndroid) {
+        final provider = OAuthProvider('apple.com')
+          ..addScope('email')
+          ..addScope('name');
+        cred = await FirebaseAuth.instance.signInWithProvider(provider);
+        displayName = cred.user?.displayName ?? 'Passenger';
+      } else {
+        final appleCredential = await SignInWithApple.getAppleIDCredential(
+          scopes: [
+            AppleIDAuthorizationScopes.email,
+            AppleIDAuthorizationScopes.fullName,
+          ],
+        );
+        final oauthCredential = OAuthProvider('apple.com').credential(
+          idToken: appleCredential.identityToken,
+          accessToken: appleCredential.authorizationCode,
+        );
+        cred = await FirebaseAuth.instance.signInWithCredential(oauthCredential);
+        displayName = appleCredential.givenName != null
+            ? '${appleCredential.givenName} ${appleCredential.familyName ?? ''}'.trim()
+            : cred.user?.displayName ?? 'Passenger';
+      }
+      final uid = cred.user!.uid;
+      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      if (!doc.exists) {
+        _currentUserName = displayName;
+        _currentUserPhone = '';
+        _currentPhotoUrl = cred.user?.photoURL ?? '';
+        await FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'name': _currentUserName,
+          'phone': '',
+          'nationality': '',
+          'photoUrl': _currentPhotoUrl,
+          'role': 'passenger',
+          'totalRides': 0,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        _currentUserName = doc.data()?['name'] ?? displayName;
+        _currentUserPhone = doc.data()?['phone'] ?? '';
+        _currentPhotoUrl = doc.data()?['photoUrl'] ?? '';
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('passenger_name', _currentUserName);
+      await prefs.setString('passenger_phone', _currentUserPhone);
+      await prefs.setString('passenger_photo', _currentPhotoUrl);
+      return null;
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) return null;
+      return 'Apple sign-in failed: ${e.message}';
+    } on FirebaseAuthException catch (e) {
+      return e.message ?? 'Apple sign-in failed';
+    } catch (e) {
+      return 'Apple sign-in failed: $e';
+    }
+  }
+
+  static Future<String?> deleteAccount() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return 'Not signed in';
+      final uid = user.uid;
+      await FirebaseFirestore.instance.collection('users').doc(uid).delete();
+      await user.delete();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      _currentUserName = '';
+      _currentUserPhone = '';
+      _currentPhotoUrl = '';
+      return null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'requires-recent-login') return '__reauth__';
+      return e.message ?? 'Failed to delete account';
+    } catch (e) {
+      return 'Failed to delete account: $e';
     }
   }
 
@@ -516,6 +599,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscure = true;
   bool _loading = false;
   bool _googleLoading = false;
+  bool _appleLoading = false;
 
   @override
   void dispose() {
@@ -672,6 +756,39 @@ class _LoginScreenState extends State<LoginScreen> {
                           ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                           : Icon(Icons.g_mobiledata, size: 26, color: Colors.red.shade700),
                       label: Text('Continue with Google',
+                          style: TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w600)),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.grey.shade300),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        backgroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 10),
+                  // ── Sign in with Apple ────────────────────────────────────
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: OutlinedButton.icon(
+                      onPressed: _appleLoading ? null : () async {
+                        setState(() => _appleLoading = true);
+                        final error = await AuthService.signInWithApple();
+                        if (!mounted) return;
+                        setState(() => _appleLoading = false);
+                        if (error != null && error.isNotEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(error)));
+                        } else if (error == null) {
+                          Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => PassengerHomeScreen()),
+                              (_) => false);
+                        }
+                      },
+                      icon: _appleLoading
+                          ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Icon(Icons.apple, size: 24, color: Colors.black),
+                      label: Text('Continue with Apple',
                           style: TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w600)),
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(color: Colors.grey.shade300),
@@ -5706,11 +5823,71 @@ class _ProfileTabState extends State<ProfileTab> {
               ),
             ),
             SizedBox(height: 12),
+            // Delete Account button
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: OutlinedButton.icon(
+                onPressed: () => _confirmDeleteAccount(context, l),
+                icon: Icon(Icons.delete_forever, color: Colors.red.shade900),
+                label: Text('Delete Account',
+                    style: TextStyle(
+                        color: Colors.red.shade900, fontSize: 16, fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Colors.red.shade900),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+            SizedBox(height: 12),
             Text('FluTour Passenger v1.0',
                 style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
             SizedBox(height: 20),
           ],
         ),
+      ),
+    );
+  }
+
+  void _confirmDeleteAccount(BuildContext context, AppLocalizations l) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Row(children: [
+          Icon(Icons.delete_forever, color: Colors.red.shade900),
+          SizedBox(width: 8),
+          Text('Delete Account?'),
+        ]),
+        content: Text(
+            'This will permanently delete your account and all trip history. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(l.cancel)),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final result = await AuthService.deleteAccount();
+              if (!context.mounted) return;
+              if (result == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Account deleted successfully'), backgroundColor: Colors.teal));
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => LoginScreen()),
+                  (_) => false,
+                );
+              } else if (result == '__reauth__') {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Please sign out and sign back in, then try again'), backgroundColor: Colors.orange));
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(result), backgroundColor: Colors.red));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade900),
+            child: Text('Delete Permanently', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
   }
