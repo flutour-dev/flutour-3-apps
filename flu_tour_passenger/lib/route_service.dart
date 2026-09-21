@@ -73,7 +73,6 @@ class GeocodingService {
         'https://nominatim.openstreetmap.org/search'
         '?q=${Uri.encodeComponent(q)}'
         '&format=json'
-        '&countrycodes=eg'
         '&limit=6',
       );
       final res = await http.get(url, headers: {
