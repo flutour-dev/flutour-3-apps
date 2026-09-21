@@ -1633,6 +1633,7 @@ class _BookRideTabState extends State<BookRideTab> {
   String? _routeInfo; // "1.2 km · 4 min"
   DateTime? _scheduledAt;
   bool get _isScheduled => _scheduledAt != null && _scheduledAt!.isAfter(DateTime.now());
+  int _passengerCount = 1;
 
   static const _spotCoords = {
     'Luxor Temple':  LatLng(25.6987, 32.6390),
@@ -2074,6 +2075,45 @@ class _BookRideTabState extends State<BookRideTab> {
                               ],
                             ),
                           ),
+                        SizedBox(height: 12),
+                        // Passenger count stepper
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.people, color: Colors.blue.shade600, size: 18),
+                              SizedBox(width: 10),
+                              Text(AppLocalizations.of(context).passengers,
+                                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+                              Spacer(),
+                              IconButton(
+                                icon: Icon(Icons.remove_circle_outline, color: Colors.blue.shade700),
+                                onPressed: _passengerCount > 1
+                                    ? () => setState(() => _passengerCount--)
+                                    : null,
+                                padding: EdgeInsets.zero,
+                                constraints: BoxConstraints(),
+                              ),
+                              Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 12),
+                                child: Text('$_passengerCount',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.add_circle_outline, color: Colors.blue.shade700),
+                                onPressed: _passengerCount < 20
+                                    ? () => setState(() => _passengerCount++)
+                                    : null,
+                                padding: EdgeInsets.zero,
+                                constraints: BoxConstraints(),
+                              ),
+                            ],
+                          ),
+                        ),
                         SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,
@@ -2104,6 +2144,7 @@ class _BookRideTabState extends State<BookRideTab> {
                                             scheduledAt: _scheduledAt?.toIso8601String(),
                                             feluccaFare: _feluccaFareAmt ?? 0.0,
                                             hantourFare: _hantourFareAmt ?? 0.0,
+                                            passengerCount: _passengerCount,
                                           )));
                             },
                             style: ElevatedButton.styleFrom(
@@ -2276,6 +2317,7 @@ class VehicleSelectScreen extends StatefulWidget {
   final String? scheduledAt;
   final double feluccaFare;
   final double hantourFare;
+  final int passengerCount;
 
   VehicleSelectScreen({
     required this.pickup,
@@ -2290,6 +2332,7 @@ class VehicleSelectScreen extends StatefulWidget {
     this.scheduledAt,
     this.feluccaFare = 0.0,
     this.hantourFare = 0.0,
+    this.passengerCount = 1,
   });
 
   @override
@@ -2530,6 +2573,7 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
                           dropoffLat: widget.dropoffLat,
                           dropoffLng: widget.dropoffLng,
                           scheduledAt: widget.scheduledAt,
+                          passengerCount: widget.passengerCount,
                         ),
                       ),
                     );
@@ -2628,7 +2672,7 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: isFelucca
-                          ? Text('50–120 EGP',
+                          ? Text('250–650 EGP',
                               style: TextStyle(color: tagColor, fontWeight: FontWeight.bold, fontSize: 13))
                           : Text('${fare.toStringAsFixed(0)} EGP',
                               style: TextStyle(color: tagColor, fontWeight: FontWeight.bold, fontSize: 13)),
@@ -2654,7 +2698,7 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
 
   Widget _buildFeluccaDurationPicker() {
     final durations = [15, 30, 60];
-    final fares = [250.0, 350.0, 550.0];
+    final fares = [250.0, 350.0, 650.0];
     final labels = ['15 min', '30 min', '1 hr'];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2782,6 +2826,7 @@ class PaymentScreen extends StatefulWidget {
   final double? dropoffLat;
   final double? dropoffLng;
   final String? scheduledAt;
+  final int passengerCount;
 
   PaymentScreen({
     required this.vehicleId,
@@ -2795,6 +2840,7 @@ class PaymentScreen extends StatefulWidget {
     this.dropoffLat,
     this.dropoffLng,
     this.scheduledAt,
+    this.passengerCount = 1,
   });
 
   @override
@@ -3144,6 +3190,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         dropoffLat: widget.dropoffLat,
                         dropoffLng: widget.dropoffLng,
                         scheduledAt: widget.scheduledAt,
+                        passengerCount: widget.passengerCount,
                       ),
                     ),
                   );
@@ -5460,7 +5507,7 @@ class _ProfileTabState extends State<ProfileTab> {
   void _showFAQ(BuildContext context) {
     final faqs = [
       ('How do I book a felucca?', 'Tap "Book a Ride" on the home screen, choose Felucca as vehicle type, pick your pickup and dropoff, then confirm booking.'),
-      ('How is the fare calculated?', 'Felucca fares are time-based. Up to 15 min: 50 EGP, up to 30 min: 80 EGP, up to 60 min: 120 EGP. Horse carriage fares are distance-based.'),
+      ('How is the fare calculated?', 'Felucca fares are time-based. Up to 15 min: 250 EGP, up to 30 min: 350 EGP, up to 60 min: 650 EGP. Horse carriage fares are distance-based.'),
       ('How do I pay?', 'You can pay in cash, credit card, or mobile wallet (InstaPay). Select your preferred method before confirming.'),
       ('Can I cancel a trip?', 'Yes, tap "Cancel" on the searching or booking screen and select a reason.'),
       ('How do I share my ride?', 'Tap the Share icon on the active ride screen to send your ride details to a contact.'),
@@ -6006,6 +6053,8 @@ class SearchingDriverScreen extends StatefulWidget {
   final double? dropoffLng;
   final String? scheduledAt;
 
+  final int passengerCount;
+
   const SearchingDriverScreen({
     required this.pickup, required this.dropoff,
     required this.vehicleType, required this.driver,
@@ -6013,6 +6062,7 @@ class SearchingDriverScreen extends StatefulWidget {
     this.proposedFare = 0,
     this.pickupLat, this.pickupLng, this.dropoffLat, this.dropoffLng,
     this.scheduledAt,
+    this.passengerCount = 1,
   });
   @override
   _SearchingDriverScreenState createState() => _SearchingDriverScreenState();
@@ -6085,6 +6135,7 @@ class _SearchingDriverScreenState extends State<SearchingDriverScreen>
         dropoffLat: widget.dropoffLat,
         dropoffLng: widget.dropoffLng,
         scheduledAt: widget.scheduledAt,
+        passengerCount: widget.passengerCount,
       );
       _tripId = trip.id;
 

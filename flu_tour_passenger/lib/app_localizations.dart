@@ -132,6 +132,9 @@ class AppLocalizations {
   String get wallet            => _t('Wallet', 'المحفظة');
   String get balance           => _t('Balance', 'الرصيد');
   String get topUp             => _t('Top Up', 'إضافة رصيد');
+
+  // ── Passenger Count ───────────────────────────────────────────────────────
+  String get passengers        => _t('Passengers', 'الركاب');
 }
 
 class _AppLocalizationsDelegate

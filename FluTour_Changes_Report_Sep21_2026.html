@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FluTour — Development Report · Sep 21, 2026</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; color: #1a1a2e; }
+  .cover { background: linear-gradient(135deg, #004D40 0%, #00796B 60%, #26A69A 100%); color: white; padding: 60px 50px 50px; }
+  .cover h1 { font-size: 42px; font-weight: 800; letter-spacing: -1px; }
+  .cover .subtitle { font-size: 18px; opacity: 0.85; margin-top: 8px; }
+  .cover .meta { margin-top: 28px; display: flex; gap: 32px; flex-wrap: wrap; }
+  .cover .meta-item { background: rgba(255,255,255,0.12); border-radius: 10px; padding: 12px 20px; }
+  .cover .meta-item .label { font-size: 11px; opacity: 0.7; text-transform: uppercase; letter-spacing: 1px; }
+  .cover .meta-item .value { font-size: 16px; font-weight: 600; margin-top: 3px; }
+  .body { max-width: 900px; margin: 0 auto; padding: 40px 30px 60px; }
+  .section { margin-bottom: 44px; }
+  .section h2 { font-size: 22px; font-weight: 700; color: #004D40; border-left: 4px solid #00796B; padding-left: 14px; margin-bottom: 18px; }
+  .section h3 { font-size: 15px; font-weight: 600; color: #333; margin: 18px 0 10px; }
+  .card { background: white; border-radius: 12px; padding: 20px 24px; margin-bottom: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+  .card .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .tag-fix { background: #E8F5E9; color: #2E7D32; }
+  .tag-feature { background: #E3F2FD; color: #1565C0; }
+  .tag-update { background: #FFF8E1; color: #F57F17; }
+  .tag-build { background: #F3E5F5; color: #6A1B9A; }
+  .card h4 { font-size: 16px; font-weight: 700; color: #1a1a2e; }
+  .card p { font-size: 14px; color: #555; line-height: 1.6; margin-top: 6px; }
+  .card .files { margin-top: 10px; }
+  .card .files span { display: inline-block; background: #f4f6fa; border: 1px solid #e0e4ef; border-radius: 6px; font-size: 12px; font-family: monospace; padding: 2px 8px; margin: 2px 3px 2px 0; color: #444; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { background: #004D40; color: white; padding: 10px 14px; text-align: left; font-weight: 600; }
+  tr:nth-child(even) { background: #f9fbfc; }
+  td { padding: 10px 14px; border-bottom: 1px solid #eee; }
+  .status-done { color: #2E7D32; font-weight: 600; }
+  .status-review { color: #E65100; font-weight: 600; }
+  .status-progress { color: #1565C0; font-weight: 600; }
+  .price-change { display: flex; align-items: center; gap: 10px; font-size: 14px; margin: 6px 0; }
+  .old-price { text-decoration: line-through; color: #999; }
+  .arrow { color: #00796B; font-weight: bold; }
+  .new-price { color: #004D40; font-weight: 700; }
+  .build-table { margin-top: 10px; }
+  .build-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+  .build-row:last-child { border-bottom: none; }
+  .build-platform { font-weight: 600; color: #444; }
+  .build-file { font-family: monospace; font-size: 12px; color: #666; }
+  .build-size { font-weight: 700; color: #004D40; }
+  footer { text-align: center; padding: 30px; color: #aaa; font-size: 13px; border-top: 1px solid #e8ecf0; margin-top: 20px; }
+  @media print {
+    body { background: white; }
+    .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>FluTour</h1>
+  <div class="subtitle">Development Report — Changes & Releases</div>
+  <div class="meta">
+    <div class="meta-item"><div class="label">Date</div><div class="value">September 21, 2026</div></div>
+    <div class="meta-item"><div class="label">Platform</div><div class="value">Flutter · Firebase</div></div>
+    <div class="meta-item"><div class="label">Apps</div><div class="value">Passenger + Driver</div></div>
+    <div class="meta-item"><div class="label">Store Status</div><div class="value">🔄 In Review</div></div>
+  </div>
+</div>
+
+<div class="body">
+
+  <!-- CHANGES -->
+  <div class="section">
+    <h2>Changes Made Today</h2>
+
+    <div class="card">
+      <div class="tag tag-fix">Bug Fix</div>
+      <h4>Login Persistence</h4>
+      <p>Both apps required re-entering credentials on every launch. Fixed by switching from <code>authStateChanges().first</code> (async, emits null first) to <code>FirebaseAuth.instance.currentUser</code> (synchronous, immediately available after <code>Firebase.initializeApp()</code>).</p>
+      <div class="files">
+        <span>flu_tour_passenger/lib/main.dart</span>
+        <span>flu_tour_driver/lib/main.dart</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tag tag-feature">New Feature</div>
+      <h4>Geocoding Search — Worldwide</h4>
+      <p>Passenger booking now has a full-screen live search for pickup and drop-off locations. Uses Nominatim (OpenStreetMap) API with debounced 450ms search, worldwide coverage with no API key required.</p>
+      <div class="files">
+        <span>flu_tour_passenger/lib/route_service.dart</span>
+        <span>flu_tour_passenger/lib/main.dart</span>
+        <span>flu_tour_passenger/lib/app_localizations.dart</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tag tag-fix">Bug Fix</div>
+      <h4>Live Driver GPS Tracking During Rides</h4>
+      <p>Passenger's map was not showing real-time driver position during active trips. Fixed by ensuring <code>DriverLocationService.startBroadcasting()</code> always runs from <code>ActiveRideScreen</code> and calling <code>broadcastPosition()</code> on every GPS fix — writing directly to Firebase Realtime Database.</p>
+      <div class="files">
+        <span>flu_tour_driver/lib/location_service.dart</span>
+        <span>flu_tour_driver/lib/main.dart</span>
+        <span>database.rules.json</span>
+        <span>firebase.json</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tag tag-feature">New Feature</div>
+      <h4>Audio Notifications</h4>
+      <p>Added sound alerts using the <code>audioplayers</code> package with programmatically generated PCM WAV tones (no bundled audio files). Driver hears a beep on new trip requests; passenger hears an alert when a driver makes an offer or sends a counter-offer.</p>
+      <div class="files">
+        <span>flu_tour_passenger/lib/sound_service.dart</span>
+        <span>flu_tour_driver/lib/sound_service.dart</span>
+        <span>flu_tour_passenger/pubspec.yaml</span>
+        <span>flu_tour_driver/pubspec.yaml</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tag tag-update">Price Update</div>
+      <h4>Felucca Fare Tiers Updated</h4>
+      <p>All felucca pricing updated across both apps (fare estimator, duration picker, card badge, FAQ):</p>
+      <div class="price-change"><span class="old-price">50 EGP</span><span class="arrow">→</span><span class="new-price">250 EGP</span><span style="color:#888;font-size:13px">up to 15 min</span></div>
+      <div class="price-change"><span class="old-price">80 EGP</span><span class="arrow">→</span><span class="new-price">350 EGP</span><span style="color:#888;font-size:13px">up to 30 min</span></div>
+      <div class="price-change"><span class="old-price">120 EGP</span><span class="arrow">→</span><span class="new-price">650 EGP</span><span style="color:#888;font-size:13px">up to 60 min</span></div>
+      <div class="files">
+        <span>flu_tour_passenger/lib/location_service.dart</span>
+        <span>flu_tour_driver/lib/location_service.dart</span>
+        <span>flu_tour_passenger/lib/main.dart</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tag tag-update">Commission Update</div>
+      <h4>FluTour Commission: 15% → 20%</h4>
+      <p>Driver earnings calculation updated from 85% to 80% of agreed fare. Reflected in the trip completion dialog and driver localizations.</p>
+      <div class="files">
+        <span>flu_tour_driver/lib/main.dart</span>
+        <span>flu_tour_driver/lib/app_localizations.dart</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tag tag-feature">New Feature</div>
+      <h4>Passenger Count Selection</h4>
+      <p>Passengers can now specify the number of travellers (1–20) when booking a trip using a +/− stepper on the booking form. The count is stored in the Firestore trip document and displayed on the driver's trip request card and active ride screen.</p>
+      <div class="files">
+        <span>flu_tour_passenger/lib/main.dart</span>
+        <span>flu_tour_passenger/lib/database_service.dart</span>
+        <span>flu_tour_driver/lib/main.dart</span>
+        <span>flu_tour_passenger/lib/app_localizations.dart</span>
+        <span>flu_tour_driver/lib/app_localizations.dart</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tag tag-fix">UI Fix</div>
+      <h4>Driver Splash Screen — Always English</h4>
+      <p>The green splash screen in the driver app now always displays in English ("FluTour Driver", "Your ride, your earnings", "Get Started") regardless of the app's language setting (English or Arabic).</p>
+      <div class="files">
+        <span>flu_tour_driver/lib/main.dart</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- BUILDS -->
+  <div class="section">
+    <h2>Build Artifacts</h2>
+    <div class="card">
+      <div class="build-table">
+        <div class="build-row">
+          <span class="build-platform">📱 Passenger — Android</span>
+          <span class="build-file">flutour-passenger-release.apk</span>
+          <span class="build-size">61.6 MB</span>
+        </div>
+        <div class="build-row">
+          <span class="build-platform">📱 Driver — Android</span>
+          <span class="build-file">flutour-driver-release.apk</span>
+          <span class="build-size">58.3 MB</span>
+        </div>
+        <div class="build-row">
+          <span class="build-platform">🍎 Passenger — iOS</span>
+          <span class="build-file">flutour-passenger-release.ipa</span>
+          <span class="build-size">15.1 MB</span>
+        </div>
+        <div class="build-row">
+          <span class="build-platform">🍎 Driver — iOS</span>
+          <span class="build-file">flutour-driver-release.ipa</span>
+          <span class="build-size">14.2 MB</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STORE STATUS -->
+  <div class="section">
+    <h2>App Store Status</h2>
+    <table>
+      <tr><th>Store</th><th>App</th><th>Status</th><th>Submitted</th></tr>
+      <tr><td>Google Play</td><td>FluTour — Book a Ride</td><td class="status-review">🔄 In Review</td><td>Sep 21, 2026</td></tr>
+      <tr><td>Google Play</td><td>FluTour Driver</td><td class="status-review">🔄 In Review</td><td>Sep 21, 2026</td></tr>
+      <tr><td>Apple App Store</td><td>FluTour</td><td class="status-review">🔄 In Review</td><td>Sep 21, 2026</td></tr>
+      <tr><td>Apple App Store</td><td>FluTour Driver</td><td class="status-review">🔄 In Review</td><td>Sep 21, 2026</td></tr>
+    </table>
+    <p style="margin-top:12px;font-size:13px;color:#888;">Google Play: 1–3 days · Apple App Store: 1–7 days</p>
+  </div>
+
+  <!-- FILES CHANGED -->
+  <div class="section">
+    <h2>Files Modified</h2>
+    <table>
+      <tr><th>File</th><th>Changes</th></tr>
+      <tr><td><code>flu_tour_passenger/lib/main.dart</code></td><td>Geocoding search, passenger count stepper, fare prices, login fix</td></tr>
+      <tr><td><code>flu_tour_passenger/lib/database_service.dart</code></td><td>Added passengerCount to Firestore trip document</td></tr>
+      <tr><td><code>flu_tour_passenger/lib/location_service.dart</code></td><td>Felucca fare tiers updated (250/350/650)</td></tr>
+      <tr><td><code>flu_tour_passenger/lib/route_service.dart</code></td><td>Added GeocodingService + GeoSuggestion (Nominatim)</td></tr>
+      <tr><td><code>flu_tour_passenger/lib/sound_service.dart</code></td><td>New file — PCM WAV audio generator + playback</td></tr>
+      <tr><td><code>flu_tour_passenger/lib/app_localizations.dart</code></td><td>Added: searchPickupLocation, typeToSearch, passengers, enterPickupDropoff</td></tr>
+      <tr><td><code>flu_tour_passenger/pubspec.yaml</code></td><td>Added audioplayers: ^6.0.0</td></tr>
+      <tr><td><code>flu_tour_driver/lib/main.dart</code></td><td>Passenger count display, English splash, commission 20%, login fix, tracking fix</td></tr>
+      <tr><td><code>flu_tour_driver/lib/location_service.dart</code></td><td>Felucca fare tiers, broadcastPosition() method</td></tr>
+      <tr><td><code>flu_tour_driver/lib/sound_service.dart</code></td><td>New file — PCM WAV audio generator + playback</td></tr>
+      <tr><td><code>flu_tour_driver/lib/app_localizations.dart</code></td><td>Added: egpFare, egpAfterCommission, day labels, passengers; fixed duplicate today key</td></tr>
+      <tr><td><code>flu_tour_driver/pubspec.yaml</code></td><td>Added audioplayers: ^6.0.0</td></tr>
+      <tr><td><code>database.rules.json</code></td><td>New file — Firebase Realtime DB security rules</td></tr>
+      <tr><td><code>firebase.json</code></td><td>Wired database.rules.json</td></tr>
+      <tr><td><code>README.md</code></td><td>Updated progress table and store status</td></tr>
+      <tr><td><code>APP_STORE_PUBLISH.md</code></td><td>Updated phases to reflect in-review status</td></tr>
+      <tr><td><code>PLAY_STORE_PUBLISH.md</code></td><td>Added current status section</td></tr>
+    </table>
+  </div>
+
+  <!-- OVERALL -->
+  <div class="section">
+    <h2>Overall Project Status</h2>
+    <table>
+      <tr><th>Area</th><th>Status</th></tr>
+      <tr><td>All UI screens (25 total)</td><td class="status-done">✅ Complete</td></tr>
+      <tr><td>Firebase Auth + session persistence</td><td class="status-done">✅ Complete</td></tr>
+      <tr><td>End-to-end booking flow</td><td class="status-done">✅ Live</td></tr>
+      <tr><td>Realtime GPS tracking</td><td class="status-done">✅ Live</td></tr>
+      <tr><td>Audio notifications</td><td class="status-done">✅ Complete</td></tr>
+      <tr><td>Worldwide geocoding search</td><td class="status-done">✅ Complete</td></tr>
+      <tr><td>Passenger count</td><td class="status-done">✅ Complete</td></tr>
+      <tr><td>Arabic / English (RTL)</td><td class="status-done">✅ Complete</td></tr>
+      <tr><td>Fare pricing (felucca + hantour)</td><td class="status-done">✅ Updated</td></tr>
+      <tr><td>20% commission</td><td class="status-done">✅ Applied</td></tr>
+      <tr><td>Android APK builds</td><td class="status-done">✅ Released</td></tr>
+      <tr><td>iOS IPA builds</td><td class="status-done">✅ Released</td></tr>
+      <tr><td>Google Play Store</td><td class="status-review">🔄 In Review</td></tr>
+      <tr><td>Apple App Store</td><td class="status-review">🔄 In Review</td></tr>
+      <tr><td>Cloud Functions</td><td class="status-progress">🔧 In Progress</td></tr>
+      <tr><td>Payment gateway</td><td class="status-progress">🔧 In Progress</td></tr>
+    </table>
+    <p style="margin-top:16px;font-size:15px;font-weight:700;color:#004D40;">Overall progress: ~95%</p>
+  </div>
+
+</div>
+
+<footer>
+  FluTour · Luxor, Egypt · Report generated Sep 21, 2026 · <em>To export as PDF: File → Print → Save as PDF</em>
+</footer>
+
+</body>
+</html>

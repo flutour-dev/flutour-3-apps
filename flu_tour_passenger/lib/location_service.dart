@@ -73,9 +73,9 @@ class FareEstimator {
       } else if (mins <= 30) {
         base = 350.0; description = 'Up to 30 min';
       } else if (mins <= 60) {
-        base = 550.0; description = 'Up to 60 min';
+        base = 650.0; description = 'Up to 60 min';
       } else {
-        base = 550.0;
+        base = 650.0;
         variable = (mins - 60) * 9.0; // 9 EGP per extra minute
         description = '${mins.round()} min';
       }

@@ -492,30 +492,27 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
                                 size: 70, color: Colors.white),
                           ),
                           SizedBox(height: 28),
-                          Builder(builder: (context) {
-                            final l = AppLocalizations.of(context);
-                            return Column(
-                              children: [
-                                Text(
-                                  l.driverAppTitle,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 36,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1,
-                                  ),
+                          Column(
+                            children: [
+                              Text(
+                                'FluTour Driver',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1,
                                 ),
-                                SizedBox(height: 8),
-                                Text(
-                                  l.yourRideEarnings,
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 16,
-                                  ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Your ride, your earnings',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 16,
                                 ),
-                              ],
-                            );
-                          }),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -538,14 +535,14 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    child: Builder(builder: (context) => Text(
-                      AppLocalizations.of(context).getStarted,
+                    child: Text(
+                      'Get Started',
                       style: TextStyle(
                         color: Color(0xFF004D40),
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
-                    )),
+                    ),
                   ),
                 ),
               ),
@@ -1703,6 +1700,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                   'amount': (data['agreedFare'] as num?)?.toDouble() ?? (data['fare'] as num?)?.toDouble() ?? 0.0,
                   'proposedFare': (data['proposedFare'] as num?)?.toDouble() ?? 0.0,
                   'payment': data['paymentMethod'] ?? 'cash',
+                  'passengerCount': (data['passengerCount'] as num?)?.toInt() ?? 1,
                   'time': 'Just now',
                 };
               }).toList());
@@ -1761,6 +1759,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
               'payment': data['paymentMethod'] ?? 'cash',
               'vehicleType': data['vehicleType'] ?? '',
               'passengerPhone': data['passengerPhone'] ?? '',
+              'passengerCount': (data['passengerCount'] as num?)?.toInt() ?? 1,
               'time': 'Just now',
             }),
           ),
@@ -2330,6 +2329,7 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                 'amount': (data['fare'] as num?)?.toDouble() ?? 0.0,
                 'proposedFare': (data['proposedFare'] as num?)?.toDouble() ?? 0.0,
                 'payment': data['paymentMethod'] ?? 'cash',
+                'passengerCount': (data['passengerCount'] as num?)?.toInt() ?? 1,
                 'time': 'Just now',
               };
             }).toList());
@@ -3231,9 +3231,31 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(widget.request['passenger'],
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 15)),
+                          Row(
+                            children: [
+                              Text(widget.request['passenger'],
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold, fontSize: 15)),
+                              SizedBox(width: 8),
+                              Container(
+                                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.purple.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.purple.shade200),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.people, size: 12, color: Colors.purple.shade700),
+                                    SizedBox(width: 3),
+                                    Text('${widget.request['passengerCount'] ?? 1}',
+                                        style: TextStyle(fontSize: 11, color: Colors.purple.shade700, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                           Text(
                               '${widget.request['pickup']} → ${widget.request['dropoff']}',
                               style: TextStyle(
@@ -4737,6 +4759,8 @@ class _TripRequestNotificationScreenState
                     _reqRow(Icons.trip_origin, Colors.green, '${req['pickup']} → ${req['dropoff']}'),
                     SizedBox(height: 8),
                     _reqRow(Icons.route, Colors.blue, '${req['distance']} · ${req['duration']}'),
+                    SizedBox(height: 8),
+                    _reqRow(Icons.people, Colors.purple, '${l.passengers}: ${req['passengerCount'] ?? 1}'),
                     SizedBox(height: 8),
                     _reqRow(Icons.access_time, Colors.grey, '${req['time']} · ${req['payment']}'),
                     SizedBox(height: 12),

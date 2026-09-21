@@ -48,11 +48,32 @@ Cloud Functions: `functions/`
 | iOS background location entitlements | ✅ Configured |
 | Route service (polyline navigation) | ✅ Added |
 | Firebase Storage rules | ✅ Deployed |
+| Geocoding search (worldwide Nominatim) | ✅ Complete |
+| Audio notifications (trip requests & offers) | ✅ Complete |
+| Live driver GPS tracking during ride | ✅ Fixed |
+| Login persistence (no re-login on relaunch) | ✅ Fixed |
+| Passenger count selection at booking | ✅ Complete |
+| Felucca fare tiers (250 / 350 / 650 EGP) | ✅ Updated |
+| 20% FluTour commission per trip | ✅ Applied |
 | Cloud Functions (earnings / notifications) | 🔧 In Progress |
-| Payment gateway (Vodafone Cash / InstaPay) | 🔜 Upcoming |
-| Play Store / App Store release | 🔜 Upcoming |
+| Payment gateway (Vodafone Cash / InstaPay) | 🔧 In Progress |
+| Google Play Store | 🔄 Submitted — Awaiting Approval |
+| Apple App Store | 🔄 Submitted — Awaiting Approval |
 
-**Overall progress: ~85%**
+**Overall progress: ~95%**
+
+---
+
+## Store Status
+
+| Store | App | Status | Submitted |
+|-------|-----|--------|-----------|
+| Google Play | FluTour — Book a Ride | 🔄 In Review | Sep 21, 2026 |
+| Google Play | FluTour Driver | 🔄 In Review | Sep 21, 2026 |
+| Apple App Store | FluTour | 🔄 In Review | Sep 21, 2026 |
+| Apple App Store | FluTour Driver | 🔄 In Review | Sep 21, 2026 |
+
+> Review times: Google Play 1–3 days · Apple App Store 1–7 days
 
 ---
 

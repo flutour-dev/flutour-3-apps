@@ -336,7 +336,7 @@ class AppLocalizations {
   String get day3Ago            => _t('3d', '3أ');
   String get day2Ago            => _t('2d', '2أ');
   String get yesterday          => _t('Yest', 'أمس');
-  String get today              => _t('Today', 'اليوم');
+  String get passengers         => _t('Passengers', 'الركاب');
 }
 
 class _AppLocalizationsDelegate
