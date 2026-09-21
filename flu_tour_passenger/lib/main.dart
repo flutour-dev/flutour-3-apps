@@ -394,11 +394,11 @@ class _SplashScreenState extends State<SplashScreen>
     _float = Tween<double>(begin: 0, end: 8).animate(
         CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
     _controller.repeat(reverse: true);
-    // Wait for Firebase Auth to restore session, then navigate
-    Future.delayed(Duration(seconds: 3), () async {
+    // Firebase.initializeApp() in main() has already restored the persisted
+    // credential — currentUser is synchronously available here.
+    Future.delayed(Duration(seconds: 3), () {
       if (!mounted) return;
-      final user = await FirebaseAuth.instance.authStateChanges().first;
-      if (!mounted) return;
+      final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (_) => PassengerHomeScreen()));

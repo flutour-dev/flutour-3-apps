@@ -433,13 +433,11 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
         .animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
     _controller.forward();
 
-    // Wait for Firebase Auth to restore session, then navigate
-    Future.delayed(Duration(seconds: 3), () async {
+    // Firebase.initializeApp() in main() has already restored the persisted
+    // credential — currentUser is synchronously available here.
+    Future.delayed(Duration(seconds: 3), () {
       if (!mounted) return;
-      // authStateChanges emits the current user (or null) immediately once
-      // Firebase Auth finishes restoring the persisted credential.
-      final user = await FirebaseAuth.instance.authStateChanges().first;
-      if (!mounted) return;
+      final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (_) => DriverHomeScreen()));
