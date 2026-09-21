@@ -61,10 +61,12 @@ Cloud Functions: `functions/`
 | Driver splash screen always English | ✅ Fixed |
 | Cloud Functions (earnings / notifications) | 🔧 In Progress |
 | Payment gateway (Vodafone Cash / InstaPay) | 🔧 In Progress |
-| Google Play Store | 🔄 In Review |
-| Apple App Store | ⚠️ Rejected — Pending Resubmission |
+| Google Play Store | ✅ Live |
+| Apple App Store | ⚠️ Pending Resubmission |
+| Declined trip persistence across restarts | ✅ Fixed |
+| Google sign-in button with official G logo | ✅ Fixed |
 
-**Overall progress: ~96%**
+**Overall progress: ~97%**
 
 ---
 
@@ -72,13 +74,13 @@ Cloud Functions: `functions/`
 
 | Store | App | Status | Notes |
 |-------|-----|--------|-------|
-| Google Play | FluTour — Book a Ride | 🔄 In Review | Submitted Sep 21, 2026 |
-| Google Play | FluTour Driver | 🔄 In Review | Submitted Sep 21, 2026 |
-| Apple App Store | FluTour | ⚠️ Rejected | Sign in with Apple + account deletion fixed; pending org account conversion |
-| Apple App Store | FluTour Driver | ⚠️ Rejected | Sign in with Apple + account deletion fixed; pending org account conversion |
+| Google Play | FluTour — Book a Ride | ✅ Live | Active — v1.0.2 (Sep 21, 2026) |
+| Google Play | FluTour Driver | ✅ Live | Active — v1.0.2 (Sep 21, 2026) |
+| Apple App Store | FluTour | ⚠️ Pending | App Store IPA ready; awaiting account conversion |
+| Apple App Store | FluTour Driver | ⚠️ Pending | App Store IPA ready; awaiting account conversion |
 
-> **Apple rejection fixes applied:** Sign in with Apple (4.8), account deletion (5.1.1v) — code complete.
-> **Pending:** Convert Apple Developer account from Individual → Organization (Guideline 5.1.1ix) before resubmitting.
+> **Apple rejection fixes applied:** Sign in with Apple (4.8), account deletion (5.1.1v), notification sounds, auth persistence — all code complete in v1.0.2.
+> **Pending:** Apple Developer account conversion Individual → Organization (contacted Apple support Sep 21, 2026 — awaiting response).
 > Review times: Google Play 1–3 days · Apple App Store 1–7 days
 
 ---
