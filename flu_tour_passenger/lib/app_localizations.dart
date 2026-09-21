@@ -74,7 +74,13 @@ class AppLocalizations {
   String get date              => _t('Date', 'التاريخ');
   String get findRides         => _t('Find Rides', 'ابحث عن سيارات');
   String get myLocation        => _t('My Location', 'موقعي');
-  String get findingRoute      => _t('Finding route...', 'جاري البحث عن المسار...');
+  String get findingRoute          => _t('Finding route...', 'جاري البحث عن المسار...');
+  String get searchPickupLocation  => _t('Search pickup location', 'ابحث عن نقطة الانطلاق');
+  String get searchDropoffLocation => _t('Search drop-off location', 'ابحث عن نقطة الوصول');
+  String get typeToSearch          => _t('Type to search places in Egypt...', 'اكتب للبحث في مصر...');
+  String get noResultsFound        => _t('No results found', 'لا توجد نتائج');
+  String get searchingPlaces       => _t('Searching...', 'جاري البحث...');
+  String get enterPickupDropoff    => _t('Please enter pickup and drop-off locations', 'يرجى إدخال نقطة الانطلاق ونقطة الوصول');
 
   // ── Vehicle & Booking ─────────────────────────────────────────────────────
   String get selectVehicle     => _t('Select Vehicle', 'اختر المركبة');

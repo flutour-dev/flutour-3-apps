@@ -1767,16 +1767,43 @@ class _BookRideTabState extends State<BookRideTab> {
     super.initState();
     _timeCtrl.text = 'Now';
     _dateCtrl.text = 'Today';
-    // Location detected only when user taps the pin button — avoids ANR from
-    // IndexedStack initialising all tabs simultaneously on home screen load.
-    _dropoffCtrl.addListener(() {
-      final typed = _dropoffCtrl.text.trim();
-      final coords = _spotCoords[typed];
-      if (coords != null && _destinationLoc != coords) {
-        setState(() => _destinationLoc = coords);
-        _updateFareEstimate();
-      }
-    });
+  }
+
+  Future<void> _openPickupSearch() async {
+    final l = AppLocalizations.of(context);
+    final result = await Navigator.push<GeoSuggestion>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationSearchScreen(title: l.searchPickupLocation),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _pickupCtrl.text = result.name;
+        _pickupLoc = result.location;
+        _center = result.location;
+      });
+      _mapController.move(result.location, 15.5);
+      _updateFareEstimate();
+    }
+  }
+
+  Future<void> _openDropoffSearch() async {
+    final l = AppLocalizations.of(context);
+    final result = await Navigator.push<GeoSuggestion>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationSearchScreen(title: l.searchDropoffLocation),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _dropoffCtrl.text = result.name;
+        _destinationLoc = result.location;
+      });
+      _mapController.move(result.location, 15.5);
+      _updateFareEstimate();
+    }
   }
 
   @override
@@ -1980,11 +2007,21 @@ class _BookRideTabState extends State<BookRideTab> {
                     padding: EdgeInsets.all(20),
                     child: Column(
                       children: [
-                        _mapInput(_pickupCtrl, AppLocalizations.of(context).pickupPoint,
-                            'Luxor Temple, your hotel...', Icons.trip_origin, Colors.green),
+                        GestureDetector(
+                          onTap: _openPickupSearch,
+                          child: AbsorbPointer(
+                            child: _mapInput(_pickupCtrl, AppLocalizations.of(context).pickupPoint,
+                                AppLocalizations.of(context).searchPickupLocation, Icons.trip_origin, Colors.green),
+                          ),
+                        ),
                         SizedBox(height: 10),
-                        _mapInput(_dropoffCtrl, AppLocalizations.of(context).dropoffPoint,
-                            'Karnak, Nile Corniche...', Icons.location_on, Colors.red),
+                        GestureDetector(
+                          onTap: _openDropoffSearch,
+                          child: AbsorbPointer(
+                            child: _mapInput(_dropoffCtrl, AppLocalizations.of(context).dropoffPoint,
+                                AppLocalizations.of(context).searchDropoffLocation, Icons.location_on, Colors.red),
+                          ),
+                        ),
                         SizedBox(height: 10),
                         Row(
                           children: [
@@ -2045,8 +2082,7 @@ class _BookRideTabState extends State<BookRideTab> {
                               if (_pickupCtrl.text.trim().isEmpty ||
                                   _dropoffCtrl.text.trim().isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                    content: Text(
-                                        'Please enter pickup and drop-off locations')));
+                                    content: Text(AppLocalizations.of(context).enterPickupDropoff)));
                                 return;
                               }
                               final homeState = context
@@ -2112,6 +2148,115 @@ class _BookRideTabState extends State<BookRideTab> {
         ),
         style: TextStyle(fontSize: 14),
       ),
+    );
+  }
+}
+
+// ===== LOCATION SEARCH SCREEN =====
+class LocationSearchScreen extends StatefulWidget {
+  final String title;
+  const LocationSearchScreen({required this.title, Key? key}) : super(key: key);
+  @override
+  _LocationSearchScreenState createState() => _LocationSearchScreenState();
+}
+
+class _LocationSearchScreenState extends State<LocationSearchScreen> {
+  final _ctrl = TextEditingController();
+  final _focus = FocusNode();
+  List<GeoSuggestion> _results = [];
+  bool _searching = false;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.requestFocus();
+    _ctrl.addListener(_onChanged);
+  }
+
+  void _onChanged() {
+    _debounce?.cancel();
+    final text = _ctrl.text.trim();
+    if (text.length < 2) {
+      setState(() { _results = []; _searching = false; });
+      return;
+    }
+    setState(() => _searching = true);
+    _debounce = Timer(const Duration(milliseconds: 450), () async {
+      final list = await GeocodingService.searchEgypt(text);
+      if (mounted) setState(() { _results = list; _searching = false; });
+    });
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _ctrl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(64),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: TextField(
+              controller: _ctrl,
+              focusNode: _focus,
+              decoration: InputDecoration(
+                hintText: l.typeToSearch,
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searching
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(width: 20, height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2)))
+                    : _ctrl.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () => _ctrl.clear())
+                        : null,
+              ),
+            ),
+          ),
+        ),
+        backgroundColor: Colors.teal.shade700,
+        foregroundColor: Colors.white,
+      ),
+      body: _results.isEmpty
+          ? Center(
+              child: Text(
+                _ctrl.text.trim().length < 2
+                    ? l.typeToSearch
+                    : (_searching ? l.searchingPlaces : l.noResultsFound),
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+              ),
+            )
+          : ListView.separated(
+              itemCount: _results.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final s = _results[i];
+                return ListTile(
+                  leading: Icon(Icons.location_on, color: Colors.red.shade400),
+                  title: Text(s.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  onTap: () => Navigator.pop(context, s),
+                );
+              },
+            ),
     );
   }
 }
