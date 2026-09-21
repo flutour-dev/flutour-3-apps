@@ -215,6 +215,17 @@ class AppLocalizations {
   // ── Google Sign-In ────────────────────────────────────────────────────────
   String get continueWithGoogle => _t('Continue with Google', 'المتابعة بواسطة Google');
   String get signedInWithGoogle => _t('Signed in with Google', 'تم الدخول بواسطة Google');
+  String get continueWithApple  => _t('Continue with Apple', 'المتابعة بواسطة Apple');
+
+  // ── Account Deletion ──────────────────────────────────────────────────────
+  String get deleteAccount      => _t('Delete Account', 'حذف الحساب');
+  String get deleteAccountTitle => _t('Delete Account?', 'حذف الحساب؟');
+  String get deleteAccountWarning => _t(
+    'This will permanently delete your account and all associated data. This cannot be undone.',
+    'سيؤدي هذا إلى حذف حسابك وجميع بياناتك بشكل نهائي. لا يمكن التراجع عن هذا الإجراء.');
+  String get deleteAccountConfirm => _t('Delete Permanently', 'حذف نهائي');
+  String get accountDeleted     => _t('Account deleted successfully', 'تم حذف الحساب بنجاح');
+  String get reAuthRequired     => _t('Please sign out and sign back in, then try again', 'يرجى تسجيل الخروج وإعادة الدخول، ثم المحاولة مرة أخرى');
 
   // ── Registration ──────────────────────────────────────────────────────────
   String get addProfilePhoto    => _t('Add profile photo', 'إضافة صورة الملف الشخصي');

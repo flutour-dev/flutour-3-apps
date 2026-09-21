@@ -55,24 +55,30 @@ Cloud Functions: `functions/`
 | Passenger count selection at booking | ✅ Complete |
 | Felucca fare tiers (250 / 350 / 650 EGP) | ✅ Updated |
 | 20% FluTour commission per trip | ✅ Applied |
+| Sign in with Apple (iOS + Android) | ✅ Complete |
+| Account deletion (GDPR / App Store compliant) | ✅ Complete |
+| Bell/chime notification sounds | ✅ Updated |
+| Driver splash screen always English | ✅ Fixed |
 | Cloud Functions (earnings / notifications) | 🔧 In Progress |
 | Payment gateway (Vodafone Cash / InstaPay) | 🔧 In Progress |
-| Google Play Store | 🔄 Submitted — Awaiting Approval |
-| Apple App Store | 🔄 Submitted — Awaiting Approval |
+| Google Play Store | 🔄 In Review |
+| Apple App Store | ⚠️ Rejected — Pending Resubmission |
 
-**Overall progress: ~95%**
+**Overall progress: ~96%**
 
 ---
 
 ## Store Status
 
-| Store | App | Status | Submitted |
-|-------|-----|--------|-----------|
-| Google Play | FluTour — Book a Ride | 🔄 In Review | Sep 21, 2026 |
-| Google Play | FluTour Driver | 🔄 In Review | Sep 21, 2026 |
-| Apple App Store | FluTour | 🔄 In Review | Sep 21, 2026 |
-| Apple App Store | FluTour Driver | 🔄 In Review | Sep 21, 2026 |
+| Store | App | Status | Notes |
+|-------|-----|--------|-------|
+| Google Play | FluTour — Book a Ride | 🔄 In Review | Submitted Sep 21, 2026 |
+| Google Play | FluTour Driver | 🔄 In Review | Submitted Sep 21, 2026 |
+| Apple App Store | FluTour | ⚠️ Rejected | Sign in with Apple + account deletion fixed; pending org account conversion |
+| Apple App Store | FluTour Driver | ⚠️ Rejected | Sign in with Apple + account deletion fixed; pending org account conversion |
 
+> **Apple rejection fixes applied:** Sign in with Apple (4.8), account deletion (5.1.1v) — code complete.
+> **Pending:** Convert Apple Developer account from Individual → Organization (Guideline 5.1.1ix) before resubmitting.
 > Review times: Google Play 1–3 days · Apple App Store 1–7 days
 
 ---
