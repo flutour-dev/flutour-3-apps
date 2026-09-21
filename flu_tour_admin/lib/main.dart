@@ -19,7 +19,7 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   } catch (_) {
-    // Firebase unavailable (suspended account or stub config) — demo mode still works
+    // Firebase unavailable — app will show error states on each screen
   }
   // Load persisted login session before UI renders
   await AdminAuthService.loadSession();
@@ -330,6 +330,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     DriversScreen(),
     BookingsScreen(),
     LiveMapScreen(),
+    AdminSettingsTab(),
   ];
 
   @override
@@ -354,6 +355,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           BottomNavigationBarItem(
               icon: Icon(Icons.receipt_long), label: 'Bookings'),
           BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Live Map'),
+          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
     );
@@ -368,11 +370,38 @@ class DashboardHomeTab extends StatefulWidget {
 
 class _DashboardHomeTabState extends State<DashboardHomeTab> {
   late Future<Map<String, dynamic>> _future;
+  StreamSubscription<QuerySnapshot>? _activeTripsSub;
+  StreamSubscription<QuerySnapshot>? _pendingDriversSub;
+  int _liveActiveTrips = 0;
+  int _livePendingDrivers = 0;
 
   @override
   void initState() {
     super.initState();
     _future = _load();
+    // Real-time active trip counter
+    _activeTripsSub = FirebaseFirestore.instance
+        .collection('trips')
+        .where('status', whereIn: ['accepted', 'in_progress', 'arrived'])
+        .snapshots()
+        .listen((snap) {
+      if (mounted) setState(() => _liveActiveTrips = snap.docs.length);
+    });
+    // Real-time pending driver counter
+    _pendingDriversSub = FirebaseFirestore.instance
+        .collection('drivers')
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .listen((snap) {
+      if (mounted) setState(() => _livePendingDrivers = snap.docs.length);
+    });
+  }
+
+  @override
+  void dispose() {
+    _activeTripsSub?.cancel();
+    _pendingDriversSub?.cancel();
+    super.dispose();
   }
 
   Future<Map<String, dynamic>> _load() async {
@@ -412,8 +441,19 @@ class _DashboardHomeTabState extends State<DashboardHomeTab> {
           );
         }
         final stats = snap.data!['stats'] as DashboardStats;
+        // Override with real-time counters when available
+        final activeTrips = _liveActiveTrips > 0 ? _liveActiveTrips : stats.activeTrips;
+        final pendingDrivers = _livePendingDrivers > 0 ? _livePendingDrivers : stats.pendingDrivers;
+        final liveStats = DashboardStats(
+          totalPassengers: stats.totalPassengers,
+          activeDrivers: stats.activeDrivers,
+          pendingDrivers: pendingDrivers,
+          activeTrips: activeTrips,
+          revenueToday: stats.revenueToday,
+          tripsToday: stats.tripsToday,
+        );
         final recentTrips = (snap.data!['trips'] as List<TripModel>).take(3).toList();
-        return _buildContent(context, stats, recentTrips);
+        return _buildContent(context, liveStats, recentTrips);
       },
     );
   }
@@ -948,6 +988,9 @@ class _DriversScreenState extends State<DriversScreen>
                   ? 'Pending'
                   : 'Blocked',
           'approved': m.status == DriverAccountStatus.approved,
+          'photoUrl': m.photoUrl,
+          'vehiclePhotoUrl': m.vehiclePhotoUrl,
+          'licensePhotoUrl': m.licensePhotoUrl,
         }).toList();
       });
     } catch (_) {}
@@ -1047,6 +1090,10 @@ class _DriversScreenState extends State<DriversScreen>
     final bool isPending = driver['status'] == 'Pending';
     final bool isBlocked = driver['status'] == 'Blocked';
     final bool isActive = driver['status'] == 'Active';
+    final String photoUrl = driver['photoUrl'] ?? '';
+    final String vehiclePhotoUrl = driver['vehiclePhotoUrl'] ?? '';
+    final String licensePhotoUrl = driver['licensePhotoUrl'] ?? '';
+    final bool hasLicense = licensePhotoUrl.isNotEmpty;
 
     Color statusColor = isPending
         ? Colors.orange
@@ -1061,69 +1108,149 @@ class _DriversScreenState extends State<DriversScreen>
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
-          BoxShadow(
-              color: Colors.black12, blurRadius: 8, offset: Offset(0, 3)),
+          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3)),
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header row: avatar + name + status badge
           Row(
             children: [
-              CircleAvatar(
-                backgroundColor: statusColor.withOpacity(0.15),
-                child: Text(
-                  driver['name'][0],
-                  style: TextStyle(
-                      color: statusColor, fontWeight: FontWeight.bold),
-                ),
-              ),
+              photoUrl.isNotEmpty
+                  ? CircleAvatar(
+                      radius: 24,
+                      backgroundImage: NetworkImage(photoUrl),
+                    )
+                  : CircleAvatar(
+                      radius: 24,
+                      backgroundColor: statusColor.withOpacity(0.15),
+                      child: Text(driver['name'][0],
+                          style: TextStyle(
+                              color: statusColor, fontWeight: FontWeight.bold, fontSize: 18)),
+                    ),
               SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(driver['name'],
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 15)),
-                    Text(
-                        '${driver['id']} · ${driver['type']} · ${driver['vehicle']}',
-                        style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 12)),
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    Text('${driver['type']} · ${driver['vehicle']}',
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                    Text(driver['phone'] ?? '',
+                        style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
                   ],
                 ),
               ),
               Container(
-                padding:
-                    EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: statusColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(driver['status'],
                     style: TextStyle(
-                        color: statusColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold)),
+                        color: statusColor, fontSize: 12, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
+
+          // Photo row: vehicle + license (tap to view full size)
+          if (vehiclePhotoUrl.isNotEmpty || licensePhotoUrl.isNotEmpty) ...[
+            SizedBox(height: 12),
+            Row(
+              children: [
+                if (vehiclePhotoUrl.isNotEmpty)
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _showFullPhoto(context, vehiclePhotoUrl, 'Vehicle Photo'),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Vehicle', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                          SizedBox(height: 4),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(vehiclePhotoUrl,
+                                height: 80, width: double.infinity, fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                    height: 80,
+                                    color: Colors.grey.shade100,
+                                    child: Icon(Icons.broken_image, color: Colors.grey))),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (vehiclePhotoUrl.isNotEmpty && licensePhotoUrl.isNotEmpty)
+                  SizedBox(width: 10),
+                if (licensePhotoUrl.isNotEmpty)
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _showFullPhoto(context, licensePhotoUrl, 'Driver License'),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(children: [
+                            Text('License', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                            SizedBox(width: 4),
+                            Icon(Icons.verified, size: 12, color: Colors.green),
+                          ]),
+                          SizedBox(height: 4),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(licensePhotoUrl,
+                                height: 80, width: double.infinity, fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                    height: 80,
+                                    color: Colors.grey.shade100,
+                                    child: Icon(Icons.broken_image, color: Colors.grey))),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+
+          // Missing license warning for pending drivers
+          if (isPending && !hasLicense) ...[
+            SizedBox(height: 10),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, size: 16, color: Colors.red.shade600),
+                  SizedBox(width: 6),
+                  Text('No license uploaded — verify before approving',
+                      style: TextStyle(fontSize: 12, color: Colors.red.shade700)),
+                ],
+              ),
+            ),
+          ],
+
           SizedBox(height: 12),
+          // Stats + action buttons
           Row(
             children: [
               if (!isPending) ...[
                 Icon(Icons.star, size: 14, color: Colors.amber),
                 SizedBox(width: 3),
                 Text('${driver['rating']}',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade700)),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
                 SizedBox(width: 12),
               ],
-              Icon(Icons.directions_boat,
-                  size: 13, color: Colors.blue.shade400),
+              Icon(Icons.directions_boat, size: 13, color: Colors.blue.shade400),
               SizedBox(width: 3),
               Text('${driver['trips']} trips',
-                  style: TextStyle(
-                      fontSize: 12, color: Colors.grey.shade700)),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
               Spacer(),
               if (isPending) ...[
                 ElevatedButton(
@@ -1147,23 +1274,18 @@ class _DriversScreenState extends State<DriversScreen>
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                    padding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     minimumSize: Size(0, 32),
                   ),
-                  child: Text('Approve',
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.white)),
+                  child: Text('Approve', style: TextStyle(fontSize: 12, color: Colors.white)),
                 ),
                 SizedBox(width: 8),
                 OutlinedButton(
                   onPressed: () async {
                     setState(() => driver['status'] = 'Blocked');
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                          content: Text('${driver['name']} rejected'),
+                      SnackBar(content: Text('${driver['name']} rejected'),
                           backgroundColor: Colors.red),
                     );
                     final uid = driver['uid'] as String?;
@@ -1176,14 +1298,11 @@ class _DriversScreenState extends State<DriversScreen>
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.red,
                     side: BorderSide(color: Colors.red),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                    padding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     minimumSize: Size(0, 32),
                   ),
-                  child: Text('Reject',
-                      style: TextStyle(fontSize: 12)),
+                  child: Text('Reject', style: TextStyle(fontSize: 12)),
                 ),
               ] else ...[
                 OutlinedButton(
@@ -1202,14 +1321,10 @@ class _DriversScreenState extends State<DriversScreen>
                     }
                   },
                   style: OutlinedButton.styleFrom(
-                    foregroundColor:
-                        isActive ? Colors.red : Colors.green,
-                    side: BorderSide(
-                        color: isActive ? Colors.red : Colors.green),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                    padding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    foregroundColor: isActive ? Colors.red : Colors.green,
+                    side: BorderSide(color: isActive ? Colors.red : Colors.green),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     minimumSize: Size(0, 32),
                   ),
                   child: Text(isActive ? 'Block' : 'Unblock',
@@ -1219,6 +1334,39 @@ class _DriversScreenState extends State<DriversScreen>
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  void _showFullPhoto(BuildContext context, String url, String title) {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.black,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              backgroundColor: Colors.black,
+              title: Text(title, style: TextStyle(color: Colors.white)),
+              iconTheme: IconThemeData(color: Colors.white),
+              automaticallyImplyLeading: false,
+              actions: [
+                IconButton(
+                  icon: Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            Image.network(url,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Text('Could not load image',
+                          style: TextStyle(color: Colors.white)),
+                    )),
+          ],
+        ),
       ),
     );
   }
@@ -1448,9 +1596,10 @@ class LiveMapScreen extends StatefulWidget {
 class _LiveMapScreenState extends State<LiveMapScreen> {
   final LatLng _luxor = LatLng(25.6872, 32.6396);
 
-  // Live driver list — updated from AdminLocationService (Firebase Realtime DB)
   List<LiveDriverInfo> _liveDrivers = [];
+  List<Map<String, dynamic>> _activeTrips = [];
   StreamSubscription<List<LiveDriverInfo>>? _driverSub;
+  StreamSubscription<QuerySnapshot>? _tripsSub;
 
   @override
   void initState() {
@@ -1458,11 +1607,22 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     _driverSub = AdminLocationService.watchOnlineDrivers().listen((drivers) {
       if (mounted) setState(() => _liveDrivers = drivers);
     });
+    _tripsSub = FirebaseFirestore.instance
+        .collection('trips')
+        .where('status', whereIn: ['accepted', 'in_progress', 'arrived'])
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      setState(() {
+        _activeTrips = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      });
+    });
   }
 
   @override
   void dispose() {
     _driverSub?.cancel();
+    _tripsSub?.cancel();
     super.dispose();
   }
 
@@ -1494,7 +1654,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                     ),
                     SizedBox(width: 6),
                     Text(
-                        '${_liveDrivers.length} Active',
+                        '${_liveDrivers.length} Online · ${_activeTrips.length} Trips',
                         style: TextStyle(
                             color: Colors.green.shade700,
                             fontSize: 12,
@@ -1519,37 +1679,54 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                 userAgentPackageName: 'com.flutour.admin',
               ),
               MarkerLayer(
-                markers: _liveDrivers
-                    .map((d) => Marker(
-                          width: 44,
-                          height: 44,
-                          point: LatLng(d.lat, d.lng),
-                          child: Tooltip(
-                            message: d.driverName,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: d.isOnTrip
-                                    ? Colors.orange
-                                    : Colors.blue,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black26,
-                                    blurRadius: 6,
-                                  )
-                                ],
-                              ),
-                              child: Icon(
-                                d.isOnTrip
-                                    ? Icons.directions_car
-                                    : Icons.sailing,
-                                color: Colors.white,
-                                size: 22,
-                              ),
+                markers: [
+                  ..._liveDrivers.map((d) => Marker(
+                        width: 50,
+                        height: 50,
+                        point: LatLng(d.lat, d.lng),
+                        child: Tooltip(
+                          message: '${d.driverName}${d.isOnTrip ? ' — On Trip' : ' — Available'}',
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: d.isOnTrip ? Colors.orange : Colors.blue,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                              boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 6)],
+                            ),
+                            child: Icon(
+                              d.isOnTrip ? Icons.directions_car : Icons.sailing,
+                              color: Colors.white,
+                              size: 22,
                             ),
                           ),
-                        ))
-                    .toList(),
+                        ),
+                      )),
+                  ..._activeTrips.where((t) {
+                    final lat = (t['pickupLat'] as num?)?.toDouble();
+                    final lng = (t['pickupLng'] as num?)?.toDouble();
+                    return lat != null && lng != null;
+                  }).map((t) {
+                    final lat = (t['pickupLat'] as num?)!.toDouble();
+                    final lng = (t['pickupLng'] as num?)!.toDouble();
+                    return Marker(
+                      width: 36,
+                      height: 36,
+                      point: LatLng(lat, lng),
+                      child: Tooltip(
+                        message: 'Passenger: ${t['passengerName'] ?? '—'}\n${t['pickup'] ?? ''}',
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade600,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                          ),
+                          child: Icon(Icons.person_pin, color: Colors.white, size: 18),
+                        ),
+                      ),
+                    );
+                  }),
+                ],
               ),
             ],
           ),
@@ -1616,22 +1793,54 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                           ],
                         ),
                       )),
+                  if (_activeTrips.isNotEmpty) ...[
+                    Divider(height: 12),
+                    Text('Active Trips (${_activeTrips.length})',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    SizedBox(height: 6),
+                    ..._activeTrips.take(3).map((t) => Padding(
+                          padding: EdgeInsets.only(bottom: 4),
+                          child: Row(children: [
+                            Icon(Icons.person_pin, color: Colors.green.shade600, size: 16),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                '${t['passengerName'] ?? '—'} → ${t['driverName'] ?? '—'}',
+                                style: TextStyle(fontSize: 12),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade100,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                (t['status'] as String? ?? '').replaceAll('_', ' '),
+                                style: TextStyle(fontSize: 10, color: Colors.orange.shade800, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ]),
+                        )),
+                  ],
                   SizedBox(height: 4),
                   Row(
                     children: [
                       _legendDot(Colors.blue),
                       SizedBox(width: 6),
-                      Text('Felucca',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600)),
-                      SizedBox(width: 16),
+                      Text('Available',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      SizedBox(width: 12),
                       _legendDot(Colors.orange),
                       SizedBox(width: 6),
-                      Text('Horse Carriage',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600)),
+                      Text('On Trip',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      SizedBox(width: 12),
+                      _legendDot(Colors.green.shade600),
+                      SizedBox(width: 6),
+                      Text('Passenger',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                     ],
                   ),
                 ],
@@ -1648,6 +1857,693 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
       width: 12,
       height: 12,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+}
+
+// ===== ADMIN SETTINGS TAB (Surge Pricing + Revenue Reports) =====
+class AdminSettingsTab extends StatefulWidget {
+  @override
+  _AdminSettingsTabState createState() => _AdminSettingsTabState();
+}
+
+class _AdminSettingsTabState extends State<AdminSettingsTab> {
+  double _feluccaMultiplier = 1.0;
+  double _horseMultiplier = 1.0;
+  bool _loadingMultipliers = true;
+  bool _savingMultipliers = false;
+  late Future<List<double>> _revenueFuture;
+  late Future<List<Map<String, dynamic>>> _payoutsFuture;
+  late Future<double> _platformEarningsFuture;
+  final _instapayCtrl = TextEditingController();
+  bool _savingInstapay = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMultipliers();
+    _revenueFuture = _loadRevenue();
+    _payoutsFuture = AdminDatabaseService.instance.getWithdrawalRequests(status: 'pending');
+    _platformEarningsFuture = AdminDatabaseService.instance.getPlatformEarnings();
+    _loadAdminInstapay();
+  }
+
+  Future<void> _loadAdminInstapay() async {
+    final phone = await AdminDatabaseService.instance.getAdminInstapay();
+    if (mounted) setState(() => _instapayCtrl.text = phone);
+  }
+
+  @override
+  void dispose() {
+    _instapayCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadMultipliers() async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection('settings').doc('surge').get();
+      if (doc.exists) {
+        setState(() {
+          _feluccaMultiplier = (doc.data()?['felucca'] as num?)?.toDouble() ?? 1.0;
+          _horseMultiplier = (doc.data()?['horseCarriage'] as num?)?.toDouble() ?? 1.0;
+        });
+      }
+    } catch (_) {}
+    setState(() => _loadingMultipliers = false);
+  }
+
+  Future<void> _saveMultipliers() async {
+    setState(() => _savingMultipliers = true);
+    try {
+      await FirebaseFirestore.instance.collection('settings').doc('surge').set({
+        'felucca': _feluccaMultiplier,
+        'horseCarriage': _horseMultiplier,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Surge pricing saved'), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to save: $e'), backgroundColor: Colors.red));
+      }
+    }
+    setState(() => _savingMultipliers = false);
+  }
+
+  /// Returns daily revenue totals for the last 7 days.
+  Future<List<double>> _loadRevenue() async {
+    final now = DateTime.now();
+    final sevenDaysAgo = DateTime(now.year, now.month, now.day).subtract(Duration(days: 6));
+    final snap = await FirebaseFirestore.instance
+        .collection('trips')
+        .where('status', isEqualTo: 'completed')
+        .get();
+    final daily = List<double>.filled(7, 0.0);
+    for (final doc in snap.docs) {
+      final dt = (doc.data()['completedAt'] as Timestamp?)?.toDate();
+      if (dt == null || dt.isBefore(sevenDaysAgo)) continue;
+      final dayIndex = dt.difference(sevenDaysAgo).inDays;
+      if (dayIndex >= 0 && dayIndex < 7) {
+        daily[dayIndex] += (doc.data()['fare'] as num?)?.toDouble() ?? 0.0;
+      }
+    }
+    return daily;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Settings'), centerTitle: true),
+      body: SingleChildScrollView(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Platform earnings summary ────────────────────────────────────
+            FutureBuilder<double>(
+              future: _platformEarningsFuture,
+              builder: (ctx, snap) {
+                final total = snap.data ?? 0.0;
+                return Container(
+                  padding: EdgeInsets.all(16),
+                  margin: EdgeInsets.only(bottom: 24),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.deepPurple.shade700, Colors.deepPurple.shade400],
+                      begin: Alignment.topLeft, end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.account_balance, color: Colors.white, size: 36),
+                      SizedBox(width: 14),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Platform Earnings (15%)',
+                              style: TextStyle(color: Colors.white70, fontSize: 12)),
+                          Text('EGP ${total.toStringAsFixed(0)}',
+                              style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
+                          Text('Total from all completed trips',
+                              style: TextStyle(color: Colors.white54, fontSize: 11)),
+                        ],
+                      ),
+                      Spacer(),
+                      IconButton(
+                        icon: Icon(Icons.refresh, color: Colors.white70),
+                        onPressed: () => setState(() =>
+                            _platformEarningsFuture = AdminDatabaseService.instance.getPlatformEarnings()),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+
+            // ── Pending withdrawal requests ──────────────────────────────────
+            Text('Pending Withdrawals',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 4),
+            Text('Drivers requesting InstaPay payout. Send the amount, then tap Mark as Paid.',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+            SizedBox(height: 12),
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: _payoutsFuture,
+              builder: (ctx, snap) {
+                if (!snap.hasData) return Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()));
+                final requests = snap.data!;
+                if (requests.isEmpty) {
+                  return Container(
+                    padding: EdgeInsets.all(16),
+                    margin: EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(children: [
+                      Icon(Icons.check_circle_outline, color: Colors.green.shade400, size: 20),
+                      SizedBox(width: 10),
+                      Text('No pending withdrawal requests', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                    ]),
+                  );
+                }
+                return Column(
+                  children: requests.map((req) {
+                    final amount = (req['amount'] as num?)?.toDouble() ?? 0.0;
+                    final instapay = req['instapayPhone'] as String? ?? '—';
+                    final driverName = req['driverName'] as String? ?? '—';
+                    final driverId = req['driverId'] as String? ?? '';
+                    final reqId = req['id'] as String;
+                    final ts = (req['requestedAt'] as Timestamp?)?.toDate();
+                    final dateStr = ts != null ? ts.toLocal().toString().substring(0, 10) : '—';
+                    return Container(
+                      margin: EdgeInsets.only(bottom: 12),
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.orange.shade200),
+                        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3))],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor: Colors.deepPurple.shade50,
+                                child: Text(driverName.isNotEmpty ? driverName[0] : '?',
+                                    style: TextStyle(color: Colors.deepPurple.shade700, fontWeight: FontWeight.bold)),
+                              ),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(driverName, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                    Text('Requested $dateStr', style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+                                  ],
+                                ),
+                              ),
+                              Text('EGP ${amount.toStringAsFixed(0)}',
+                                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.deepPurple.shade700)),
+                            ],
+                          ),
+                          SizedBox(height: 10),
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.teal.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.teal.shade200),
+                            ),
+                            child: Row(children: [
+                              Icon(Icons.phone, color: Colors.teal.shade700, size: 16),
+                              SizedBox(width: 8),
+                              Text('Send via InstaPay to: ', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                              Text(instapay, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, letterSpacing: 0.5)),
+                            ]),
+                          ),
+                          SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (_) => AlertDialog(
+                                    title: Text('Mark as Paid?'),
+                                    content: Text('Confirm you have sent EGP ${amount.toStringAsFixed(0)} to $driverName via InstaPay ($instapay).'),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancel')),
+                                      ElevatedButton(
+                                        onPressed: () => Navigator.pop(context, true),
+                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                                        child: Text('Yes, Paid', style: TextStyle(color: Colors.white)),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm != true) return;
+                                try {
+                                  await AdminDatabaseService.instance
+                                      .markWithdrawalPaid(reqId, driverId, amount);
+                                  if (ctx.mounted) {
+                                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                                        content: Text('Marked as paid — driver balance updated'),
+                                        backgroundColor: Colors.green));
+                                    setState(() => _payoutsFuture =
+                                        AdminDatabaseService.instance.getWithdrawalRequests(status: 'pending'));
+                                  }
+                                } catch (e) {
+                                  if (ctx.mounted) {
+                                    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                                        content: Text('Error: $e'), backgroundColor: Colors.red));
+                                  }
+                                }
+                              },
+                              icon: Icon(Icons.check_circle, color: Colors.white),
+                              label: Text('Mark as Paid', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.shade600,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+            SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                icon: Icon(Icons.refresh, size: 16),
+                label: Text('Refresh Requests'),
+                onPressed: () => setState(() =>
+                    _payoutsFuture = AdminDatabaseService.instance.getWithdrawalRequests(status: 'pending')),
+              ),
+            ),
+            SizedBox(height: 20),
+
+            // ── Admin InstaPay number ────────────────────────────────────────
+            Text('Admin InstaPay Number',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 4),
+            Text('Drivers see this number to send cash trip commissions (15%). Keep it updated.',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+            SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _instapayCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: InputDecoration(
+                      hintText: '01XXXXXXXXX',
+                      prefixIcon: Icon(Icons.phone, color: Colors.deepPurple.shade400),
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200)),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 10),
+                ElevatedButton(
+                  onPressed: _savingInstapay ? null : () async {
+                    setState(() => _savingInstapay = true);
+                    try {
+                      await AdminDatabaseService.instance.setAdminInstapay(_instapayCtrl.text.trim());
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Admin InstaPay saved'), backgroundColor: Colors.green));
+                    } catch (e) {
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Save failed: $e'), backgroundColor: Colors.red));
+                    } finally {
+                      if (mounted) setState(() => _savingInstapay = false);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurple.shade600,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  ),
+                  child: _savingInstapay
+                      ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            SizedBox(height: 32),
+
+            // ── Surge pricing ───────────────────────────────────────────────
+            Text('Surge Pricing',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 4),
+            Text('Multiplier applied to base fares in real time.',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+            SizedBox(height: 16),
+            if (_loadingMultipliers)
+              Center(child: CircularProgressIndicator())
+            else ...[
+              _multiplierRow('Felucca', _feluccaMultiplier, (v) => setState(() => _feluccaMultiplier = v)),
+              SizedBox(height: 12),
+              _multiplierRow('Horse Carriage', _horseMultiplier, (v) => setState(() => _horseMultiplier = v)),
+              SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _savingMultipliers ? null : _saveMultipliers,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _savingMultipliers
+                      ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : Text('Save Surge Multipliers', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+            SizedBox(height: 32),
+
+            // ── Revenue report ──────────────────────────────────────────────
+            Text('Revenue — Last 7 Days',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 16),
+            FutureBuilder<List<double>>(
+              future: _revenueFuture,
+              builder: (ctx, snap) {
+                if (!snap.hasData) return Center(child: CircularProgressIndicator());
+                final daily = snap.data!;
+                final total = daily.fold<double>(0, (s, v) => s + v);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade700,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.payments, color: Colors.white, size: 32),
+                          SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Total Revenue (7 days)',
+                                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+                              Text('EGP ${total.toStringAsFixed(0)}',
+                                  style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    _RevenueBarChart(daily: daily),
+                    SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        icon: Icon(Icons.refresh),
+                        label: Text('Refresh'),
+                        onPressed: () => setState(() => _revenueFuture = _loadRevenue()),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+
+            // ── Promo code management ───────────────────────────────────────
+            SizedBox(height: 32),
+            Text('Promo Codes',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 12),
+            _PromoCodeManager(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _multiplierRow(String label, double value, ValueChanged<double> onChanged) {
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 6)],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: value > 1.0 ? Colors.orange.shade100 : Colors.green.shade100,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${value.toStringAsFixed(1)}x',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: value > 1.0 ? Colors.orange.shade800 : Colors.green.shade800,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Slider(
+            value: value,
+            min: 1.0,
+            max: 3.0,
+            divisions: 20,
+            activeColor: value > 1.5 ? Colors.orange : Colors.blue,
+            label: '${value.toStringAsFixed(1)}x',
+            onChanged: onChanged,
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('1.0x (Normal)', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              Text('3.0x (High demand)', style: TextStyle(fontSize: 11, color: Colors.grey)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RevenueBarChart extends StatelessWidget {
+  final List<double> daily;
+  const _RevenueBarChart({required this.daily});
+
+  @override
+  Widget build(BuildContext context) {
+    final maxVal = daily.fold<double>(0, (m, v) => v > m ? v : m);
+    final days = ['6d', '5d', '4d', '3d', '2d', 'Yest', 'Today'];
+    return Container(
+      height: 160,
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3))],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: List.generate(7, (i) {
+          final val = daily[i];
+          final ratio = maxVal > 0 ? val / maxVal : 0.0;
+          final isToday = i == 6;
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 3),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (val > 0)
+                    Text('${val.toStringAsFixed(0)}',
+                        style: TextStyle(fontSize: 9, color: Colors.blue.shade700, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 2),
+                  AnimatedContainer(
+                    duration: Duration(milliseconds: 600),
+                    height: (100 * ratio).clamp(4, 100).toDouble(),
+                    decoration: BoxDecoration(
+                      color: isToday ? Colors.blue.shade700 : Colors.blue.shade200,
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(6)),
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(days[i], style: TextStyle(fontSize: 9, color: Colors.grey.shade600)),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _PromoCodeManager extends StatefulWidget {
+  @override
+  _PromoCodeManagerState createState() => _PromoCodeManagerState();
+}
+
+class _PromoCodeManagerState extends State<_PromoCodeManager> {
+  final _codeCtrl = TextEditingController();
+  final _discountCtrl = TextEditingController();
+  late Future<QuerySnapshot> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = FirebaseFirestore.instance.collection('promoCodes').get();
+  }
+
+  Future<void> _addPromo() async {
+    final code = _codeCtrl.text.trim().toUpperCase();
+    final pct = double.tryParse(_discountCtrl.text.trim());
+    if (code.isEmpty || pct == null || pct <= 0 || pct > 100) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Enter a valid code and discount %')));
+      return;
+    }
+    await FirebaseFirestore.instance.collection('promoCodes').add({
+      'code': code,
+      'discountPercent': pct,
+      'active': true,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    _codeCtrl.clear();
+    _discountCtrl.clear();
+    setState(() => _future = FirebaseFirestore.instance.collection('promoCodes').get());
+  }
+
+  @override
+  void dispose() {
+    _codeCtrl.dispose();
+    _discountCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Add new promo
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: TextField(
+                controller: _codeCtrl,
+                textCapitalization: TextCapitalization.characters,
+                decoration: InputDecoration(
+                  labelText: 'Code',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+            ),
+            SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _discountCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: '% Off',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+            ),
+            SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: _addPromo,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade700,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              ),
+              child: Text('Add', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+        SizedBox(height: 12),
+        // List existing promos
+        FutureBuilder<QuerySnapshot>(
+          future: _future,
+          builder: (ctx, snap) {
+            if (!snap.hasData) return Center(child: CircularProgressIndicator());
+            final docs = snap.data!.docs;
+            if (docs.isEmpty) return Text('No promo codes yet.', style: TextStyle(color: Colors.grey));
+            return Column(
+              children: docs.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final active = data['active'] as bool? ?? false;
+                return Container(
+                  margin: EdgeInsets.only(bottom: 8),
+                  padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.local_offer,
+                          color: active ? Colors.green.shade600 : Colors.grey, size: 18),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(data['code'] ?? '',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            Text('${data['discountPercent']}% off',
+                                style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: active,
+                        activeColor: Colors.green,
+                        onChanged: (val) async {
+                          await doc.reference.update({'active': val});
+                          setState(() => _future =
+                              FirebaseFirestore.instance.collection('promoCodes').get());
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
+      ],
     );
   }
 }

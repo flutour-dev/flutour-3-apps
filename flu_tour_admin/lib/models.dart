@@ -142,6 +142,9 @@ class DriverModel {
   final bool isOnline;
   final double? latitude;
   final double? longitude;
+  final String photoUrl;
+  final String vehiclePhotoUrl;
+  final String licensePhotoUrl;
 
   DriverModel({
     required this.uid,
@@ -155,6 +158,9 @@ class DriverModel {
     this.isOnline = false,
     this.latitude,
     this.longitude,
+    this.photoUrl = '',
+    this.vehiclePhotoUrl = '',
+    this.licensePhotoUrl = '',
   });
 
   Map<String, dynamic> toMap() => {
@@ -184,6 +190,7 @@ class DriverModel {
     status: status ?? this.status,
     isOnline: isOnline ?? this.isOnline,
     latitude: latitude, longitude: longitude,
+    photoUrl: photoUrl, vehiclePhotoUrl: vehiclePhotoUrl, licensePhotoUrl: licensePhotoUrl,
   );
 }
 

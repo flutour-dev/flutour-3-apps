@@ -17,19 +17,22 @@ A complete ride-hailing platform for Luxor's iconic tourist vehicles — Felucca
 
 ## Tech Stack
 
-- **Flutter** 3.x (Android + iOS + Web)
-- **Firebase** — Auth, Firestore, Realtime Database, FCM
+- **Flutter** 3.x (Android + iOS)
+- **Firebase** — Auth, Firestore, Realtime Database, FCM, Storage
 - **flutter_map** + MapTiler Streets tiles
-- **Geolocator** — GPS & location services
+- **Geolocator** — GPS & background location services
+- **flutter_localizations** — Full Arabic / English (RTL support)
 
 ## Firebase Project
 
 Project ID: `flutour-dev`
-Firestore rules: `firestore.rules` (deployed via Firebase CLI)
+Firestore rules: `firestore.rules`
+Storage rules: `storage.rules`
+Cloud Functions: `functions/`
 
 ---
 
-## Progress — Day 42 of ~84
+## Progress — September 2026
 
 | Feature | Status |
 |---------|--------|
@@ -40,30 +43,44 @@ Firestore rules: `firestore.rules` (deployed via Firebase CLI)
 | FCM push notifications | ✅ Wired (client-side) |
 | Driver online/offline toggle | ✅ Live |
 | Admin approve/reject drivers | ✅ Live |
-| Payment gateway (Vodafone Cash / InstaPay) | 🔜 Week 8 |
-| Play Store release | 🔜 Week 11 |
+| Arabic / English localization (RTL) | ✅ Complete |
+| App icons (Android + iOS) | ✅ Updated |
+| iOS background location entitlements | ✅ Configured |
+| Route service (polyline navigation) | ✅ Added |
+| Firebase Storage rules | ✅ Deployed |
+| Cloud Functions (earnings / notifications) | 🔧 In Progress |
+| Payment gateway (Vodafone Cash / InstaPay) | 🔜 Upcoming |
+| Play Store / App Store release | 🔜 Upcoming |
 
-**Overall progress: ~78%**
+**Overall progress: ~85%**
 
 ---
 
 ## Getting Started
 
 ### Passenger App
-1. Open the app and tap **Create Account**
+1. Open the app and tap **Create Account** (إنشاء حساب)
 2. Enter your phone number and set a password
-3. You can immediately book rides — no approval needed
+3. Book rides immediately — no approval needed
+4. Switch language from the Profile tab (English / Arabic)
 
 ### Driver App
 1. Open the app and tap **Create Account**
 2. Fill in your details and submit registration
-3. Wait for **Admin approval** before you can go online and accept trips
+3. Wait for **Admin approval** before going online
+4. Go online to start receiving trip requests
 
 ### Admin Panel
-1. Log in with the admin account (set up directly in Firebase Auth)
-2. Go to **Driver Approvals** to review and approve pending drivers
+1. Log in with the admin account (created directly in Firebase Auth)
+2. Go to **Driver Approvals** to review pending drivers
 3. Monitor live trips and manage the platform from the dashboard
 
 ---
 
-*Flutour · Luxor, Egypt · 2026*
+## Localization
+
+Both the Driver and Passenger apps support **English** and **Arabic** with full RTL layout. Language can be switched at runtime from the Profile screen. All UI text — buttons, labels, dialogs, status messages — is fully translated.
+
+---
+
+*FluTour · Luxor, Egypt · 2026*

@@ -1,9 +1,9 @@
 // lib/location_service.dart — FluTour Passenger App
 // Handles GPS, permissions, fare estimation, and ETA
-// TODO: Wire real-time driver location stream to Firebase Realtime DB when account is recovered
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 // ── Luxor landmarks (fixed coordinates) ───────────────────────────────────
 class LuxorSpots {
@@ -27,9 +27,23 @@ class LatLngPoint {
 
 // ── Fare estimation ────────────────────────────────────────────────────────
 class FareEstimator {
-  static const double _baseFare = 5.0;       // EGP base
-  static const double _perKmRate = 3.0;      // EGP per km
-  static const double _surgeMutiplier = 1.0; // 1.0 = no surge
+  // Surge multipliers — loaded from Firestore settings/surge at login
+  static double feluccaSurge = 1.0;
+  static double hantourSurge = 1.0;
+
+  /// Call once at login / session load to pull the latest multipliers.
+  static Future<void> loadSurge() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('settings').doc('surge').get();
+      if (doc.exists) {
+        feluccaSurge = (doc.data()?['felucca'] as num?)?.toDouble() ?? 1.0;
+        hantourSurge = (doc.data()?['horseCarriage'] as num?)?.toDouble() ?? 1.0;
+      }
+    } catch (_) {
+      // Network unavailable — keep defaults (1.0 = no surge)
+    }
+  }
 
   // Haversine distance between two GPS points (km)
   static double distanceKm(double lat1, double lng1, double lat2, double lng2) {
@@ -37,24 +51,64 @@ class FareEstimator {
     return distMeters / 1000;
   }
 
-  // Estimate fare from distance
-  static FareBreakdown estimate(double distanceKm) {
-    final base = _baseFare;
-    final distance = distanceKm * _perKmRate;
-    final subtotal = base + distance;
-    final surge = subtotal * _surgeMutiplier;
-    final total = double.parse(surge.toStringAsFixed(1));
+  /// Felucca: time-based pricing (Nile boat sessions).
+  /// Horse carriage: distance-based pricing.
+  /// [distanceKm] is always provided; [durationMinutes] is used for felucca.
+  static FareBreakdown estimate(double distanceKm,
+      {String vehicleType = 'felucca', double durationMinutes = 0}) {
+    final surge = vehicleType == 'felucca' ? feluccaSurge : hantourSurge;
+
+    double base;
+    double variable = 0.0;
+    String unit;
+    String description;
+
+    if (vehicleType == 'felucca') {
+      // Time-based tiers for felucca (Nile boat)
+      final mins = durationMinutes > 0
+          ? durationMinutes
+          : (distanceKm / 0.083); // ~5 km/h on water fallback
+      if (mins <= 15) {
+        base = 50.0; description = 'Up to 15 min';
+      } else if (mins <= 30) {
+        base = 80.0; description = 'Up to 30 min';
+      } else if (mins <= 60) {
+        base = 120.0; description = 'Up to 60 min';
+      } else {
+        base = 150.0;
+        variable = (mins - 60) * 2.0; // 2 EGP per extra minute
+        description = '${mins.round()} min';
+      }
+      unit = 'min';
+    } else {
+      // Distance-based tiers for horse carriage
+      if (distanceKm <= 0.5) {
+        base = 30.0; description = 'Up to 500 m';
+      } else if (distanceKm <= 1.0) {
+        base = 50.0; description = 'Up to 1 km';
+      } else {
+        base = 50.0;
+        variable = (distanceKm - 1.0) * 40.0; // 40 EGP per extra km
+        description = '${(distanceKm * 1000).round()} m';
+      }
+      unit = 'km';
+    }
+
+    final subtotal = (base + variable) * surge;
+    final total = double.parse(subtotal.toStringAsFixed(0));
     return FareBreakdown(
       baseFare: base,
-      distanceFare: double.parse(distance.toStringAsFixed(1)),
-      surgeMultiplier: _surgeMutiplier,
-      total: total < 12.0 ? 12.0 : total, // minimum fare 12 EGP
+      variableFare: variable,
+      surgeMultiplier: surge,
+      total: total,
+      unit: unit,
+      description: description,
     );
   }
 
-  // ETA string based on distance
+  // ETA string based on distance at city speed (~30 km/h)
   static String etaString(double distanceKm) {
-    final minutes = (distanceKm / 0.5).round(); // ~30 km/h in city
+    final minutes = (distanceKm / 0.5).round();
     if (minutes < 60) return '$minutes min';
     return '${(minutes / 60).floor()}h ${minutes % 60}min';
   }
@@ -62,15 +116,19 @@ class FareEstimator {
 
 class FareBreakdown {
   final double baseFare;
-  final double distanceFare;
+  final double variableFare;
   final double surgeMultiplier;
   final double total;
+  final String unit;        // 'km' or 'min'
+  final String description; // human-readable tier label
 
   FareBreakdown({
     required this.baseFare,
-    required this.distanceFare,
+    required this.variableFare,
     required this.surgeMultiplier,
     required this.total,
+    required this.unit,
+    required this.description,
   });
 }
 
@@ -139,10 +197,9 @@ class LocationService {
     );
   }
 
-  // Stream for passenger to watch driver position (simulated)
-  // TODO: Replace with FirebaseDatabase.instance.ref('drivers_location/$driverId').onValue
+  // Fallback stream — not used by the live BookingConfirmedScreen.
+  // The live tracking reads directly from Realtime DB: drivers_location/{driverId}
   static Stream<LatLngPoint> watchDriverLocation(String driverId) async* {
-    // Simulate driver moving toward pickup point
     final points = [
       LatLngPoint(25.6950, 32.6380),
       LatLngPoint(25.6960, 32.6385),

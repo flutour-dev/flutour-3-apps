@@ -67,14 +67,41 @@ service cloud.firestore {
       );
       // Passenger can create a trip
       allow create: if isSignedIn() && request.resource.data.passengerId == request.auth.uid;
-      // Driver can accept an unassigned requested trip
-      allow update: if isSignedIn() && resource.data.status == 'requested' && resource.data.driverId == '';
-      // Driver can update their own assigned trip (arrive, start, complete)
+      // Driver can accept an unassigned requested trip (driverId may be '' or missing)
+      allow update: if isSignedIn() && resource.data.status == 'requested' &&
+        (resource.data.driverId == '' || resource.data.driverId == null);
+      // Driver can update their own assigned trip (arrive, start, complete, rate)
       allow update: if isSignedIn() && resource.data.driverId == request.auth.uid;
-      // Passenger can cancel their own requested trip
+      // Passenger can cancel or update their own trip (counter-offer, rating)
       allow update: if isSignedIn() && resource.data.passengerId == request.auth.uid;
       // Admin can read/write all trips
       allow read, write: if isAdmin();
+
+      // ── messages subcollection (in-trip chat) ──────────────────────────────
+      match /messages/{messageId} {
+        // Passenger and driver involved in this trip can read and send messages
+        allow read: if isSignedIn() && (
+          get(/databases/$(database)/documents/trips/$(tripId)).data.passengerId == request.auth.uid ||
+          get(/databases/$(database)/documents/trips/$(tripId)).data.driverId == request.auth.uid
+        );
+        allow create: if isSignedIn() && (
+          get(/databases/$(database)/documents/trips/$(tripId)).data.passengerId == request.auth.uid ||
+          get(/databases/$(database)/documents/trips/$(tripId)).data.driverId == request.auth.uid
+        );
+      }
+
+      // ── offers subcollection (InDrive-style driver fare bidding) ──────────
+      match /offers/{driverUid} {
+        // Passenger can read all offers on their trip
+        allow read: if isSignedIn() &&
+          get(/databases/$(database)/documents/trips/$(tripId)).data.passengerId == request.auth.uid;
+        // Driver can read their own offer
+        allow read: if isSignedIn() && request.auth.uid == driverUid;
+        // Driver can write their own offer
+        allow create, update: if isSignedIn() && request.auth.uid == driverUid;
+        // Admin can read/write all offers
+        allow read, write: if isAdmin();
+      }
     }
 
     // ── payments collection ─────────────────────────────────────────────────
@@ -92,6 +119,26 @@ service cloud.firestore {
     match /notifications/{notifId} {
       allow read, write: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow write: if isAdmin();
+    }
+
+    // ── settings collection ─────────────────────────────────────────────────
+    // admin instapay, surge multipliers, app config
+    match /settings/{docId} {
+      // Any signed-in user can read (driver needs admin instapay, surge rates)
+      allow read: if isSignedIn();
+      // Only admin can write
+      allow write: if isAdmin();
+    }
+
+    // ── withdrawal_requests collection ──────────────────────────────────────
+    // Request: {driverId, driverName, driverPhone, amount, status, requestedAt}
+    match /withdrawal_requests/{reqId} {
+      // Driver can create their own withdrawal request
+      allow create: if isSignedIn() && request.resource.data.driverId == request.auth.uid;
+      // Driver can read their own requests
+      allow read: if isSignedIn() && resource.data.driverId == request.auth.uid;
+      // Admin can read/write all withdrawal requests
+      allow read, write: if isAdmin();
     }
 
   }

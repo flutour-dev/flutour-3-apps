@@ -2,14 +2,14 @@
 
 import 'models.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_database/firebase_database.dart' as rtdb;
 
 class AdminDatabaseService {
   static final AdminDatabaseService instance = AdminDatabaseService._();
   AdminDatabaseService._();
 
   static final _db = FirebaseFirestore.instance;
-  static final _rtdb = FirebaseDatabase.instance;
+  static final _rtdb = rtdb.FirebaseDatabase.instance;
 
   Future<List<PassengerModel>> getPassengers() async {
     final snap = await _db
@@ -57,6 +57,9 @@ class AdminDatabaseService {
         isOnline: data['isOnline'] ?? false,
         latitude: (data['latitude'] as num?)?.toDouble(),
         longitude: (data['longitude'] as num?)?.toDouble(),
+        photoUrl: data['photoUrl'] ?? '',
+        vehiclePhotoUrl: data['vehiclePhotoUrl'] ?? '',
+        licensePhotoUrl: data['licensePhotoUrl'] ?? '',
       );
     }).toList();
   }
@@ -126,20 +129,82 @@ class AdminDatabaseService {
         .update({'status': 'cancelled', 'cancelledBy': 'admin'});
   }
 
+  Future<List<Map<String, dynamic>>> getWithdrawalRequests({String? status}) async {
+    final snap = await _db.collection('withdrawal_requests')
+        .orderBy('requestedAt', descending: true)
+        .get();
+    final all = snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+    // Filter by status in Dart — avoids compound index requirement
+    if (status != null) return all.where((r) => r['status'] == status).toList();
+    return all;
+  }
+
+  Future<void> markWithdrawalPaid(String requestId, String driverId, double amount) async {
+    final batch = _db.batch();
+    batch.update(_db.collection('withdrawal_requests').doc(requestId), {
+      'status': 'paid',
+      'paidAt': FieldValue.serverTimestamp(),
+    });
+    batch.update(_db.collection('drivers').doc(driverId), {
+      'balance': FieldValue.increment(-amount),
+    });
+    await batch.commit();
+  }
+
+  Future<double> getPlatformEarnings() async {
+    final snap = await _db.collection('trips').where('status', isEqualTo: 'completed').get();
+    return snap.docs.fold<double>(
+        0, (s, d) => s + ((d.data()['fare'] as num?)?.toDouble() ?? 0) * 0.15);
+  }
+
+  Future<String> getAdminInstapay() async {
+    try {
+      final doc = await _db.collection('settings').doc('admin').get();
+      return (doc.data()?['instapayPhone'] as String?) ?? '';
+    } catch (_) { return ''; }
+  }
+
+  Future<void> setAdminInstapay(String phone) async {
+    await _db.collection('settings').doc('admin').set(
+      {'instapayPhone': phone, 'updatedAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
+  }
+
   Future<DashboardStats> getDashboardStats() async {
-    final results = await Future.wait([
+    final now = DateTime.now();
+    final todayStart = Timestamp.fromDate(DateTime(now.year, now.month, now.day));
+
+    final countResults = await Future.wait([
       _db.collection('users').where('role', isEqualTo: 'passenger').count().get(),
       _db.collection('drivers').where('status', isEqualTo: 'approved').count().get(),
       _db.collection('drivers').where('status', isEqualTo: 'pending').count().get(),
       _db.collection('trips').where('status', isEqualTo: 'in_progress').count().get(),
     ]);
+
+    // Query today's completed trips (needs composite index: status ASC + completedAt ASC)
+    int tripsToday = 0;
+    double revenueToday = 0.0;
+    try {
+      final todaySnap = await _db
+          .collection('trips')
+          .where('status', isEqualTo: 'completed')
+          .where('completedAt', isGreaterThanOrEqualTo: todayStart)
+          .get();
+      tripsToday = todaySnap.docs.length;
+      revenueToday = todaySnap.docs.fold(0.0,
+          (sum, d) => sum + ((d.data()['fare'] as num?) ?? 0).toDouble());
+    } catch (_) {
+      // Index not yet created — falls back to 0 until index is deployed
+    }
+
     return DashboardStats(
-      totalPassengers: results[0].count ?? 0,
-      activeDrivers: results[1].count ?? 0,
-      pendingDrivers: results[2].count ?? 0,
-      activeTrips: results[3].count ?? 0,
-      revenueToday: 0.0, // requires aggregation query or Cloud Function
-      tripsToday: 0,
+      totalPassengers: countResults[0].count ?? 0,
+      activeDrivers: countResults[1].count ?? 0,
+      pendingDrivers: countResults[2].count ?? 0,
+      activeTrips: countResults[3].count ?? 0,
+      revenueToday: revenueToday,
+      tripsToday: tripsToday,
     );
   }
 }
