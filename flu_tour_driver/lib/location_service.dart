@@ -243,14 +243,14 @@ class FareEstimator {
           ? durationMinutes
           : (distanceKm / 0.083); // ~5 km/h on water fallback
       if (mins <= 15) {
-        base = 50.0; description = 'Up to 15 min';
+        base = 250.0; description = 'Up to 15 min';
       } else if (mins <= 30) {
-        base = 80.0; description = 'Up to 30 min';
+        base = 350.0; description = 'Up to 30 min';
       } else if (mins <= 60) {
-        base = 120.0; description = 'Up to 60 min';
+        base = 550.0; description = 'Up to 60 min';
       } else {
-        base = 150.0;
-        variable = (mins - 60) * 2.0;
+        base = 550.0;
+        variable = (mins - 60) * 9.0;
         description = '${mins.round()} min';
       }
       unit = 'min';

@@ -2654,7 +2654,7 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
 
   Widget _buildFeluccaDurationPicker() {
     final durations = [15, 30, 60];
-    final fares = [50.0, 80.0, 120.0];
+    final fares = [250.0, 350.0, 550.0];
     final labels = ['15 min', '30 min', '1 hr'];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2760,12 +2760,12 @@ class _VehicleSelectScreenState extends State<VehicleSelectScreen> {
 }
 
 /// Returns the minimum session fare for the vehicle type.
-/// Felucca: 50 EGP (≤15 min), Horse Carriage: 30 EGP (≤500 m).
+/// Felucca: 250 EGP (≤15 min), Horse Carriage: 30 EGP (≤500 m).
 /// Surge is applied on top.
 double _fareForType(String type) {
   final isFelucca = type == 'Felucca';
   final surge = isFelucca ? FareEstimator.feluccaSurge : FareEstimator.hantourSurge;
-  final base = isFelucca ? 50.0 : 30.0; // minimum session fare
+  final base = isFelucca ? 250.0 : 30.0; // minimum session fare
   return double.parse((base * surge).toStringAsFixed(0));
 }
 

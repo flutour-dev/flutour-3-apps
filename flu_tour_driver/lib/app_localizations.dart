@@ -298,8 +298,8 @@ class AppLocalizations {
   String get confirmWithdrawal  => _t('Confirm Withdrawal', 'تأكيد السحب');
   String get withdrawalSubmitted => _t('Withdrawal request submitted. You will be paid via InstaPay within 24 hours.', 'تم تقديم طلب السحب. ستحصل على أرباحك عبر إنستاباي خلال 24 ساعة.');
   String get failedToSubmitRequest => _t('Failed to submit request. Please try again.', 'فشل تقديم الطلب. يرجى المحاولة مرة أخرى.');
-  String get cashCommission     => _t('Cash Trip Commission (15%)', 'عمولة الرحلات النقدية (15%)');
-  String get cashCommissionNote => _t('For cash trips, please send 15% of each fare to admin via InstaPay:', 'للرحلات النقدية، يرجى إرسال 15% من كل أجرة إلى الإدارة عبر إنستاباي:');
+  String get cashCommission     => _t('Cash Trip Commission (20%)', 'عمولة الرحلات النقدية (20%)');
+  String get cashCommissionNote => _t('For cash trips, please send 20% of each fare to admin via InstaPay:', 'للرحلات النقدية، يرجى إرسال 20% من كل أجرة إلى الإدارة عبر إنستاباي:');
   String get recentWithdrawals  => _t('Recent Withdrawal Requests', 'طلبات السحب الأخيرة');
   String get paid               => _t('Paid', 'مدفوع');
   String get pendingStatus      => _t('Pending', 'معلق');

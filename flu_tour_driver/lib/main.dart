@@ -2810,7 +2810,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
         // Step 3: show earnings and go back to dashboard
         if (!mounted) return;
         final fare = (widget.request['amount'] as num?)?.toDouble() ?? 0.0;
-        final earning = fare * 0.85;
+        final earning = fare * 0.80;
         showDialog(
           context: context,
           barrierDismissible: false,
