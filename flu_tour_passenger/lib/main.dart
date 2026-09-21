@@ -478,11 +478,12 @@ class _SplashScreenState extends State<SplashScreen>
     _float = Tween<double>(begin: 0, end: 8).animate(
         CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
     _controller.repeat(reverse: true);
-    // Firebase.initializeApp() in main() has already restored the persisted
-    // credential — currentUser is synchronously available here.
-    Future.delayed(Duration(seconds: 3), () {
+    Future.delayed(Duration(seconds: 2), () async {
       if (!mounted) return;
-      final user = FirebaseAuth.instance.currentUser;
+      // authStateChanges().first waits for Firebase Auth to fully restore
+      // the persisted session from Keychain before deciding which screen to show.
+      final user = await FirebaseAuth.instance.authStateChanges().first;
+      if (!mounted) return;
       if (user != null) {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (_) => PassengerHomeScreen()));
@@ -754,7 +755,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       },
                       icon: _googleLoading
                           ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                          : Icon(Icons.g_mobiledata, size: 26, color: Colors.red.shade700),
+                          : Image.asset('assets/icons/google_logo.png', width: 22, height: 22),
                       label: Text('Continue with Google',
                           style: TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w600)),
                       style: OutlinedButton.styleFrom(

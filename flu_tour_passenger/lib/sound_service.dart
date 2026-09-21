@@ -1,14 +1,40 @@
 // lib/sound_service.dart — FluTour Passenger
-// Generates bell/chime tones in-process (no audio asset files required).
+// Generates bell/chime tones and plays via temp file (reliable on iOS + Android).
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
 
 class SoundService {
-  static final AudioPlayer _player = AudioPlayer();
+  static AudioPlayer? _player;
+  static bool _sessionConfigured = false;
 
-  // ── Chime/bell WAV generator ───────────────────────────────────────────────
-  // Produces a natural bell tone using exponential decay + inharmonic overtone.
+  static Future<AudioPlayer> _getPlayer() async {
+    if (_player == null) {
+      _player = AudioPlayer();
+    }
+    if (!_sessionConfigured) {
+      _sessionConfigured = true;
+      try {
+        await _player!.setAudioContext(AudioContext(
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playback,
+            options: {AVAudioSessionOptions.mixWithOthers},
+          ),
+          android: AudioContextAndroid(
+            isSpeakerphoneOn: false,
+            stayAwake: false,
+            contentType: AndroidContentType.sonification,
+            usageType: AndroidUsageType.notification,
+            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+          ),
+        ));
+      } catch (_) {}
+    }
+    return _player!;
+  }
+
   static Uint8List _buildChime({
     double frequency = 660,
     double durationSec = 1.0,
@@ -35,7 +61,7 @@ class SoundService {
     _setStr(buf, 36, 'data');
     buf.setUint32(40, dataBytes, Endian.little);
 
-    final attackLen = (sampleRate * 0.008).round(); // 8 ms attack
+    final attackLen = (sampleRate * 0.008).round();
     for (int i = 0; i < numSamples; i++) {
       final t = i / sampleRate;
       double env = amplitude * math.exp(-t / decayTau);
@@ -50,26 +76,39 @@ class SoundService {
   }
 
   static void _setStr(ByteData buf, int offset, String s) {
-    for (int i = 0; i < s.length; i++) {
-      buf.setUint8(offset + i, s.codeUnitAt(i));
-    }
+    for (int i = 0; i < s.length; i++) buf.setUint8(offset + i, s.codeUnitAt(i));
+  }
+
+  static Future<String> _writeTempWav(Uint8List bytes, String name) async {
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/$name.wav');
+    await file.writeAsBytes(bytes, flush: true);
+    return file.path;
   }
 
   /// Double chime (A5 → E5) — play when a driver submits a fare offer.
   static Future<void> playDriverOffer() async {
     try {
-      await _player.stop();
-      await _player.play(BytesSource(_buildChime(frequency: 880, durationSec: 0.9, decayTau: 0.32)));
-      await Future.delayed(const Duration(milliseconds: 380));
-      await _player.play(BytesSource(_buildChime(frequency: 659, durationSec: 1.1, decayTau: 0.45)));
+      final player = await _getPlayer();
+      await player.stop();
+      final p1 = await _writeTempWav(
+          _buildChime(frequency: 880, durationSec: 0.9, decayTau: 0.32), 'offer1');
+      await player.play(DeviceFileSource(p1));
+      await Future.delayed(const Duration(milliseconds: 420));
+      final p2 = await _writeTempWav(
+          _buildChime(frequency: 659, durationSec: 1.1, decayTau: 0.45), 'offer2');
+      await player.play(DeviceFileSource(p2));
     } catch (_) {}
   }
 
   /// Single soft chime (B4) — play when driver sends a counter-offer.
   static Future<void> playCounterOffer() async {
     try {
-      await _player.stop();
-      await _player.play(BytesSource(_buildChime(frequency: 494, durationSec: 1.0, decayTau: 0.40)));
+      final player = await _getPlayer();
+      await player.stop();
+      final path = await _writeTempWav(
+          _buildChime(frequency: 494, durationSec: 1.0, decayTau: 0.40), 'counter');
+      await player.play(DeviceFileSource(path));
     } catch (_) {}
   }
 }
