@@ -493,27 +493,30 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
                                 size: 70, color: Colors.white),
                           ),
                           SizedBox(height: 28),
-                          Column(
-                            children: [
-                              Text(
-                                'FluTour Driver',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 36,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1,
+                          Builder(builder: (context) {
+                            final l = AppLocalizations.of(context);
+                            return Column(
+                              children: [
+                                Text(
+                                  l.driverAppTitle,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 36,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1,
+                                  ),
                                 ),
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Your Ride, Your Earnings',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 16,
+                                SizedBox(height: 8),
+                                Text(
+                                  l.yourRideEarnings,
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 16,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            );
+                          }),
                         ],
                       ),
                     ),
@@ -536,14 +539,14 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    child: Text(
-                      'Get Started',
+                    child: Builder(builder: (context) => Text(
+                      AppLocalizations.of(context).getStarted,
                       style: TextStyle(
                         color: Color(0xFF004D40),
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
-                    ),
+                    )),
                   ),
                 ),
               ),
@@ -579,7 +582,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
     if (_phoneController.text.trim().isEmpty ||
         _passwordController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please enter phone number and password')),
+        SnackBar(content: Text(AppLocalizations.of(context).enterPhonePassword)),
       );
       return;
     }
@@ -755,7 +758,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                   icon: _googleLoading
                       ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                       : Icon(Icons.g_mobiledata, size: 26, color: Colors.red.shade700),
-                  label: Text('Continue with Google',
+                  label: Text(AppLocalizations.of(context).continueWithGoogle,
                       style: TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w600)),
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(color: Colors.grey.shade300),
@@ -847,7 +850,7 @@ class _DriverGoogleRegisterScreenState
                   if (googleName.isNotEmpty)
                     Text(googleName,
                         style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-                  Text('Signed in with Google',
+                  Text(l.signedInWithGoogle,
                       style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
                 ],
               ),
@@ -935,10 +938,10 @@ class _DriverGoogleRegisterScreenState
               );
             }),
             SizedBox(height: 16),
-            Text('Vehicle Photo',
+            Text(l.vehiclePhoto,
                 style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
             SizedBox(height: 4),
-            Text('Photo of your felucca or carriage (shown to passengers)',
+            Text(l.vehiclePhotoHint,
                 style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
             SizedBox(height: 8),
             GestureDetector(
@@ -971,17 +974,17 @@ class _DriverGoogleRegisterScreenState
                           Icon(Icons.add_photo_alternate_outlined,
                               size: 36, color: Colors.teal.shade300),
                           SizedBox(height: 8),
-                          Text('Tap to add vehicle photo',
+                          Text(l.tapToAddVehiclePhoto,
                               style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
                         ],
                       ),
               ),
             ),
             SizedBox(height: 16),
-            Text('Driver License',
+            Text(l.driverLicensePhoto,
                 style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
             SizedBox(height: 4),
-            Text('Photo of your driver license (required for approval)',
+            Text(l.licensePhotoHint,
                 style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
             SizedBox(height: 8),
             GestureDetector(
@@ -1014,7 +1017,7 @@ class _DriverGoogleRegisterScreenState
                           Icon(Icons.badge_outlined,
                               size: 36, color: Colors.orange.shade300),
                           SizedBox(height: 8),
-                          Text('Tap to add license photo',
+                          Text(l.tapToAddLicensePhoto,
                               style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
                         ],
                       ),
@@ -1032,7 +1035,7 @@ class _DriverGoogleRegisterScreenState
                         final vehicle = _vehicleController.text.trim();
                         if (phone.isEmpty || vehicle.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Please fill in all fields')));
+                            SnackBar(content: Text(l.fillAllFields)));
                           return;
                         }
                         setState(() => _isLoading = true);
@@ -1060,8 +1063,7 @@ class _DriverGoogleRegisterScreenState
                               uploadResults.whereType<String>().toList();
                           if (uploadErrors.isNotEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text(
-                                  'Photos failed to upload — update them from your profile later.\n${uploadErrors.join("\n")}'),
+                              content: Text(l.photosUploadFailed),
                               duration: Duration(seconds: 6),
                             ));
                           }
@@ -1180,7 +1182,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
             ),
             SizedBox(height: 6),
             Center(
-              child: Text('Add profile photo',
+              child: Text(l.addProfilePhoto,
                   style: TextStyle(
                       color: Colors.teal.shade600,
                       fontSize: 12,
@@ -1250,10 +1252,10 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
               );
             }),
             SizedBox(height: 16),
-            Text('Vehicle Photo',
+            Text(l.vehiclePhoto,
                 style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
             SizedBox(height: 4),
-            Text('Photo of your felucca or carriage (shown to passengers)',
+            Text(l.vehiclePhotoHint,
                 style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
             SizedBox(height: 8),
             GestureDetector(
@@ -1288,11 +1290,11 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                           Icon(Icons.add_a_photo,
                               size: 40, color: Colors.teal.shade400),
                           SizedBox(height: 8),
-                          Text('Tap to add vehicle photo',
+                          Text(l.tapToAddVehiclePhoto,
                               style: TextStyle(
                                   color: Colors.teal.shade600, fontSize: 13)),
                           SizedBox(height: 4),
-                          Text('(optional but recommended)',
+                          Text(l.optionalRecommended,
                               style: TextStyle(
                                   color: Colors.grey.shade500, fontSize: 11)),
                         ],
@@ -1300,10 +1302,10 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
               ),
             ),
             SizedBox(height: 16),
-            Text('Driver License Photo',
+            Text(l.driverLicensePhoto,
                 style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
             SizedBox(height: 4),
-            Text('Required for admin approval — front side of license',
+            Text(l.licensePhotoHint,
                 style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
             SizedBox(height: 8),
             GestureDetector(
@@ -1338,11 +1340,11 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                           Icon(Icons.credit_card,
                               size: 40, color: Colors.orange.shade400),
                           SizedBox(height: 8),
-                          Text('Tap to upload license photo',
+                          Text(l.tapToAddLicensePhoto,
                               style: TextStyle(
                                   color: Colors.orange.shade700, fontSize: 13)),
                           SizedBox(height: 4),
-                          Text('(required — admin will review before approval)',
+                          Text(l.licensePhotoRequired,
                               style: TextStyle(
                                   color: Colors.grey.shade500, fontSize: 11)),
                         ],
@@ -1357,7 +1359,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
               controller: _passwordController,
               obscureText: _obscurePassword,
               decoration: InputDecoration(
-                hintText: 'Create a password (min 6 characters)',
+                hintText: l.createPasswordHint,
                 prefixIcon: Icon(Icons.lock, color: Colors.teal.shade600),
                 suffixIcon: IconButton(
                   icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility,
@@ -1379,7 +1381,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
               controller: _confirmPasswordController,
               obscureText: _obscureConfirm,
               decoration: InputDecoration(
-                hintText: 'Re-enter your password',
+                hintText: l.reenterPasswordHint,
                 prefixIcon: Icon(Icons.lock_outline, color: Colors.teal.shade600),
                 suffixIcon: IconButton(
                   icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility,
@@ -1409,13 +1411,13 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                         if (name.isEmpty || phone.isEmpty || vehicle.isEmpty ||
                             password.isEmpty || confirmPassword.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Please fill in all fields')),
+                            SnackBar(content: Text(l.fillAllFields)),
                           );
                           return;
                         }
                         if (password != confirmPassword) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Passwords do not match')),
+                            SnackBar(content: Text(l.passwordsDoNotMatch)),
                           );
                           return;
                         }
@@ -1451,8 +1453,7 @@ class _DriverRegisterScreenState extends State<DriverRegisterScreen> {
                             final uploadErrors = uploadResults.whereType<String>().toList();
                             if (uploadErrors.isNotEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                content: Text(
-                                  'Photos failed to upload — update them from your profile later.\n${uploadErrors.join("\n")}'),
+                                content: Text(l.photosUploadFailed),
                                 duration: Duration(seconds: 6),
                               ));
                             }
@@ -1520,6 +1521,7 @@ class DriverPendingApprovalScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -1537,12 +1539,12 @@ class DriverPendingApprovalScreen extends StatelessWidget {
                     size: 60, color: Colors.orange.shade700),
               ),
               SizedBox(height: 32),
-              Text('Application Submitted!',
+              Text(l.applicationSubmitted,
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center),
               SizedBox(height: 12),
               Text(
-                'Hi $name, your registration is under review.\n\nAdmin will approve your account within 1–2 business days. You\'ll be notified once approved.',
+                l.pendingApprovalBody(name),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     color: Colors.grey.shade600, fontSize: 15, height: 1.6),
@@ -1560,7 +1562,7 @@ class DriverPendingApprovalScreen extends StatelessWidget {
                   SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Have your licence and insurance documents ready. Admin may contact you for verification.',
+                      l.pendingDocsReady,
                       style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
                     ),
                   ),
@@ -1580,7 +1582,7 @@ class DriverPendingApprovalScreen extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
                   ),
-                  child: Text('Back to Login',
+                  child: Text(l.backToLogin,
                       style: TextStyle(
                           color: Colors.teal.shade700,
                           fontSize: 17,
@@ -1626,15 +1628,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
         items: [
           BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard), label: 'Home'),
+              icon: Icon(Icons.dashboard), label: AppLocalizations.of(context).tabHome),
           BottomNavigationBarItem(
-              icon: Icon(Icons.notifications_active), label: 'Requests'),
+              icon: Icon(Icons.notifications_active), label: AppLocalizations.of(context).navRequests),
           BottomNavigationBarItem(
-              icon: Icon(Icons.history), label: 'Trips'),
+              icon: Icon(Icons.history), label: AppLocalizations.of(context).tabTrips),
           BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet), label: 'Earnings'),
+              icon: Icon(Icons.account_balance_wallet), label: AppLocalizations.of(context).earnings),
           BottomNavigationBarItem(
-              icon: Icon(Icons.person), label: 'Profile'),
+              icon: Icon(Icons.person), label: AppLocalizations.of(context).tabProfile),
         ],
       ),
     );
@@ -1785,7 +1787,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
           children: [
             Icon(Icons.sailing, color: Colors.teal.shade700, size: 22),
             SizedBox(width: 8),
-            Text('FluTour Driver'),
+            Text(l.driverAppTitle),
           ],
         ),
         centerTitle: true,
@@ -1889,8 +1891,8 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                     SizedBox(height: 4),
                     Text(
                       _isOnline
-                          ? 'Tap to go offline'
-                          : 'Tap to start accepting rides',
+                          ? l.tapToGoOffline
+                          : l.tapToStartAccepting,
                       style: TextStyle(
                           color: Colors.white70, fontSize: 13),
                     ),
@@ -1905,7 +1907,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Today's stats
-                  Text("Today's Summary",
+                  Text(l.todaySummary,
                       style: TextStyle(
                           fontSize: 17, fontWeight: FontWeight.bold)),
                   SizedBox(height: 12),
@@ -1920,16 +1922,16 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                       return Row(
                         children: [
                           Expanded(
-                              child: _buildStatCard('Trips Today', '$tripsToday',
+                              child: _buildStatCard(AppLocalizations.of(context).tripsToday, '$tripsToday',
                                   Icons.directions_boat, Colors.blue)),
                           SizedBox(width: 12),
                           Expanded(
-                              child: _buildStatCard('Earned Today',
+                              child: _buildStatCard(AppLocalizations.of(context).earnedToday,
                                   'EGP ${earnedToday.toStringAsFixed(0)}',
                                   Icons.account_balance_wallet, Colors.teal)),
                           SizedBox(width: 12),
                           Expanded(
-                              child: _buildStatCard('Rating',
+                              child: _buildStatCard(AppLocalizations.of(context).rating,
                                   '${rating.toStringAsFixed(1)} ★',
                                   Icons.star, Colors.orange)),
                         ],
@@ -1962,7 +1964,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                     ),
 
                   // Live map
-                  Text('Your Location',
+                  Text(l.yourLocation,
                       style: TextStyle(
                           fontSize: 17, fontWeight: FontWeight.bold)),
                   SizedBox(height: 12),
@@ -2073,14 +2075,14 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (ctx, setDialog) => AlertDialog(
-          title: Text('Send Fare Offer'),
+          title: Text(AppLocalizations.of(ctx).sendFareOffer),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Passenger offered: ${passengerFare.toStringAsFixed(0)} EGP',
+              Text('${AppLocalizations.of(ctx).passengerOffered} ${passengerFare.toStringAsFixed(0)} EGP',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
               SizedBox(height: 12),
-              Text('Your fare offer (EGP):', style: TextStyle(fontWeight: FontWeight.w600)),
+              Text(AppLocalizations.of(ctx).yourFareOffer, style: TextStyle(fontWeight: FontWeight.w600)),
               SizedBox(height: 8),
               TextField(
                 controller: ctrl,
@@ -2088,7 +2090,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                 decoration: InputDecoration(
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   suffixText: 'EGP',
-                  hintText: 'Enter your fare',
+                  hintText: AppLocalizations.of(ctx).enterYourFare,
                 ),
                 onChanged: (v) {
                   final d = double.tryParse(v);
@@ -2096,12 +2098,12 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                 },
               ),
               SizedBox(height: 8),
-              Text('Passenger will choose from driver offers',
+              Text(AppLocalizations.of(ctx).passengerWillChoose,
                   style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppLocalizations.of(ctx).cancel)),
             ElevatedButton(
               onPressed: () async {
                 Navigator.pop(ctx);
@@ -2122,7 +2124,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Offer sent! Waiting for passenger to accept.'),
+                        content: Text(AppLocalizations.of(context).offerSent),
                         backgroundColor: Colors.teal.shade700,
                       ),
                     );
@@ -2130,13 +2132,13 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                 } catch (e) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to send offer: $e'), backgroundColor: Colors.red),
+                      SnackBar(content: Text('${AppLocalizations.of(context).failedToSendOffer}: $e'), backgroundColor: Colors.red),
                     );
                   }
                 }
               },
               style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade700),
-              child: Text('Send Offer', style: TextStyle(color: Colors.white)),
+              child: Text(AppLocalizations.of(ctx).sendOffer, style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -2235,7 +2237,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
                   ),
-                  child: Text('Make Offer',
+                  child: Text(AppLocalizations.of(context).makeOffer,
                       style: TextStyle(color: Colors.white)),
                 ),
               ),
@@ -2334,7 +2336,7 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                   children: [
                     Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
                     SizedBox(height: 12),
-                    Text('Could not load requests',
+                    Text(AppLocalizations.of(context).couldNotLoadRequests,
                         style: TextStyle(fontWeight: FontWeight.bold)),
                     SizedBox(height: 8),
                     Text(_streamError!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
@@ -2493,12 +2495,12 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                     padding: EdgeInsets.symmetric(vertical: 12),
                   ),
                   child: _acceptingIds.contains(req['id'] as String)
-                      ? SizedBox(
+                      ? const SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(
                               color: Colors.white, strokeWidth: 2))
-                      : Text('Make Offer',
+                      : Text(AppLocalizations.of(context).makeOffer,
                           style: TextStyle(
                               color: Colors.white,
                               fontSize: 15,
@@ -2522,14 +2524,14 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (ctx, setDialog) => AlertDialog(
-          title: Text('Send Fare Offer'),
+          title: Text(AppLocalizations.of(ctx).sendFareOffer),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Passenger offered: ${passengerFare.toStringAsFixed(0)} EGP',
+              Text('${AppLocalizations.of(ctx).passengerOffered} ${passengerFare.toStringAsFixed(0)} EGP',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
               SizedBox(height: 12),
-              Text('Your fare offer (EGP):', style: TextStyle(fontWeight: FontWeight.w600)),
+              Text(AppLocalizations.of(ctx).yourFareOffer, style: TextStyle(fontWeight: FontWeight.w600)),
               SizedBox(height: 8),
               TextField(
                 controller: ctrl,
@@ -2537,7 +2539,7 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                 decoration: InputDecoration(
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   suffixText: 'EGP',
-                  hintText: 'Enter your fare',
+                  hintText: AppLocalizations.of(ctx).enterYourFare,
                 ),
                 onChanged: (v) {
                   final d = double.tryParse(v);
@@ -2545,12 +2547,12 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                 },
               ),
               SizedBox(height: 8),
-              Text('Passenger will choose from driver offers',
+              Text(AppLocalizations.of(ctx).passengerWillChoose,
                   style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(AppLocalizations.of(ctx).cancel)),
             ElevatedButton(
               onPressed: () async {
                 Navigator.pop(ctx);
@@ -2572,7 +2574,7 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Offer sent! Waiting for passenger to accept.'),
+                        content: Text(AppLocalizations.of(context).offerSent),
                         backgroundColor: Colors.teal.shade700,
                       ),
                     );
@@ -2582,13 +2584,13 @@ class _RideRequestsTabState extends State<RideRequestsTab> {
                   if (mounted) {
                     setState(() => _acceptingIds.remove(tripId));
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to send offer: $e'), backgroundColor: Colors.red),
+                      SnackBar(content: Text('${AppLocalizations.of(context).failedToSendOffer}: $e'), backgroundColor: Colors.red),
                     );
                   }
                 }
               },
               style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade700),
-              child: Text('Send Offer', style: TextStyle(color: Colors.white)),
+              child: Text(AppLocalizations.of(ctx).sendOffer, style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -2815,7 +2817,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Update failed: $e'), duration: Duration(seconds: 6)));
+            SnackBar(content: Text('${l.updateFailed}: $e'), duration: Duration(seconds: 6)));
       }
     }
   }
@@ -2865,7 +2867,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
   void _cancelTrip() {
     final l = AppLocalizations.of(context);
     String? _selectedReason;
-    final reasons = ['Passenger not found', 'Vehicle issue', 'Emergency', 'Passenger request', 'Other'];
+    final reasons = [l.reasonPassengerNotFound, l.reasonVehicleIssue, l.reasonEmergency, l.reasonPassengerRequest, l.reasonOther];
     showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -2875,7 +2877,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Select a reason:', style: TextStyle(color: Colors.grey.shade700)),
+              Text(l.selectReason, style: TextStyle(color: Colors.grey.shade700)),
               SizedBox(height: 8),
               ...reasons.map((r) => RadioListTile<String>(
                 value: r, groupValue: _selectedReason,
@@ -2949,7 +2951,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                 controller: commentCtrl,
                 maxLines: 2,
                 decoration: InputDecoration(
-                  hintText: 'Leave a comment (optional)',
+                  hintText: AppLocalizations.of(ctx).leaveComment,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
@@ -2963,7 +2965,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                 Navigator.pop(ctx);
                 _goToDashboard();
               },
-              child: Text('Skip', style: TextStyle(color: Colors.grey)),
+              child: Text(AppLocalizations.of(ctx).skip, style: TextStyle(color: Colors.grey)),
             ),
             ElevatedButton(
               onPressed: tempRating == 0
@@ -3012,14 +3014,14 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                   final confirm = await showDialog<bool>(
                     context: context,
                     builder: (_) => AlertDialog(
-                      title: Text('Refuse Trip?'),
-                      content: Text('Are you sure you want to refuse this trip? It will be cancelled and the passenger will be notified.'),
+                      title: Text(AppLocalizations.of(context).refuseTrip),
+                      content: Text(AppLocalizations.of(context).refuseTripConfirm),
                       actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: Text('No')),
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppLocalizations.of(context).no)),
                         ElevatedButton(
                           onPressed: () => Navigator.pop(context, true),
                           style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                          child: Text('Yes, Refuse', style: TextStyle(color: Colors.white)),
+                          child: Text(AppLocalizations.of(context).yesRefuse, style: TextStyle(color: Colors.white)),
                         ),
                       ],
                     ),
@@ -3249,9 +3251,9 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                               ? l.startTrip
                               : _step == 2
                                   ? (widget.request['paymentMethod'] == 'instapay'
-                                      ? 'Payment Received — Complete Trip'
-                                      : 'Complete Trip')
-                                  : 'Done — Back to Home',
+                                      ? l.paymentReceivedComplete
+                                      : l.completeTrip)
+                                  : l.doneBackToHome,
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 16,
@@ -3309,7 +3311,7 @@ class _TripHistoryTabState extends State<TripHistoryTab> {
                 children: [
                   Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
                   SizedBox(height: 12),
-                  Text('Could not load trip history',
+                  Text(AppLocalizations.of(context).couldNotLoadHistory,
                       style: TextStyle(color: Colors.grey.shade600)),
                   SizedBox(height: 16),
                   ElevatedButton(
@@ -3486,7 +3488,7 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                 children: [
                   Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
                   SizedBox(height: 12),
-                  Text('Could not load earnings',
+                  Text(l.couldNotLoadEarnings,
                       style: TextStyle(color: Colors.grey.shade600)),
                   SizedBox(height: 16),
                   ElevatedButton(
@@ -3529,7 +3531,7 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('This Month',
+                      Text(l.thisMonth,
                           style: TextStyle(color: Colors.white70, fontSize: 14)),
                       SizedBox(height: 8),
                       Text('EGP ${summary.thisMonth.toStringAsFixed(0)}',
@@ -3540,33 +3542,33 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                       SizedBox(height: 16),
                       Row(
                         children: [
-                          _balanceStat('Total Trips', '${profile?.totalTrips ?? 0}'),
+                          _balanceStat(l.totalRides, '${profile?.totalTrips ?? 0}'),
                           SizedBox(width: 24),
-                          _balanceStat('Rating', '${(profile?.rating ?? 0.0).toStringAsFixed(1)} ★'),
+                          _balanceStat(l.rating, '${(profile?.rating ?? 0.0).toStringAsFixed(1)} ★'),
                           SizedBox(width: 24),
-                          _balanceStat('Vehicle', profile?.vehicleId ?? '—'),
+                          _balanceStat(l.vehicle, profile?.vehicleId ?? '—'),
                         ],
                       ),
                     ],
                   ),
                 ),
                 SizedBox(height: 24),
-                Text('This Period',
+                Text(l.thisPeriod,
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                 SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: _buildStatBox('Today\nTrips', '${summary.tripsToday}', Colors.teal)),
+                    Expanded(child: _buildStatBox(l.todayTripsLabel, '${summary.tripsToday}', Colors.teal)),
                     SizedBox(width: 12),
-                    Expanded(child: _buildStatBox('Today\nEarned', 'EGP ${summary.today.toStringAsFixed(0)}', Colors.green)),
+                    Expanded(child: _buildStatBox(l.todayEarnedLabel, 'EGP ${summary.today.toStringAsFixed(0)}', Colors.green)),
                     SizedBox(width: 12),
-                    Expanded(child: _buildStatBox('This Week', 'EGP ${summary.thisWeek.toStringAsFixed(0)}', Colors.orange)),
+                    Expanded(child: _buildStatBox(l.thisWeek, 'EGP ${summary.thisWeek.toStringAsFixed(0)}', Colors.orange)),
                   ],
                 ),
                 SizedBox(height: 24),
                 // 7-day bar chart
                 SizedBox(height: 24),
-                Text('Last 7 Days',
+                Text(l.last7Days,
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                 SizedBox(height: 12),
                 _EarningsBarChart(daily: daily),
@@ -3581,7 +3583,7 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
 
                       if (balance <= 0) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('No earnings to withdraw.'), backgroundColor: Colors.orange),
+                          SnackBar(content: Text(l.noEarningsToWithdraw), backgroundColor: Colors.orange),
                         );
                         return;
                       }
@@ -3593,15 +3595,14 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                             title: Row(children: [
                               Icon(Icons.warning_amber_rounded, color: Colors.orange),
                               SizedBox(width: 8),
-                              Text('InstaPay number missing'),
+                              Text(l.instapayMissing),
                             ]),
-                            content: Text(
-                                'You have not set your InstaPay number yet.\n\nGo to your Profile tab and add your InstaPay number to enable withdrawals.'),
+                            content: Text(l.instapayMissingBody),
                             actions: [
                               ElevatedButton(
                                 onPressed: () => Navigator.pop(context),
                                 style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade700),
-                                child: Text('OK', style: TextStyle(color: Colors.white)),
+                                child: Text(l.ok, style: TextStyle(color: Colors.white)),
                               ),
                             ],
                           ),
@@ -3615,17 +3616,17 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                           title: Row(children: [
                             Icon(Icons.account_balance, color: Colors.teal.shade700),
                             SizedBox(width: 8),
-                            Text('Withdraw via InstaPay'),
+                            Text(l.withdrawViaInstapay),
                           ]),
                           content: Column(
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Amount:', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                              Text(l.amountLabel, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
                               Text('EGP ${balance.toStringAsFixed(0)}',
                                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.teal.shade700)),
                               SizedBox(height: 12),
-                              Text('Will be sent to:', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                              Text(l.willBeSentTo, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
                               Container(
                                 margin: EdgeInsets.only(top: 6),
                                 padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -3644,14 +3645,14 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                                 ),
                               ),
                               SizedBox(height: 12),
-                              Text('The admin will transfer your earnings to this InstaPay number within 24 hours.',
+                              Text(l.instapayTransferNote,
                                   style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
                             ],
                           ),
                           actions: [
                             TextButton(
                               onPressed: () => Navigator.pop(context),
-                              child: Text('Cancel'),
+                              child: Text(l.cancel),
                             ),
                             ElevatedButton(
                               onPressed: () async {
@@ -3671,7 +3672,7 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                        content: Text('Withdrawal request submitted. You will be paid via InstaPay within 24 hours.'),
+                                        content: Text(l.withdrawalSubmitted),
                                         backgroundColor: Colors.teal.shade700,
                                       ),
                                     );
@@ -3679,20 +3680,20 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                                 } catch (_) {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Failed to submit request. Please try again.'), backgroundColor: Colors.red),
+                                      SnackBar(content: Text(l.failedToSubmitRequest), backgroundColor: Colors.red),
                                     );
                                   }
                                 }
                               },
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade700),
-                              child: Text('Confirm Withdrawal', style: TextStyle(color: Colors.white)),
+                              child: Text(l.confirmWithdrawal, style: TextStyle(color: Colors.white)),
                             ),
                           ],
                         ),
                       );
                     },
                     icon: Icon(Icons.account_balance_wallet, color: Colors.white),
-                    label: Text('Withdraw Earnings',
+                    label: Text(l.withdrawEarnings,
                         style: TextStyle(
                             color: Colors.white,
                             fontSize: 16,
@@ -3724,11 +3725,11 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                         Row(children: [
                           Icon(Icons.info_outline, color: Colors.amber.shade700, size: 16),
                           SizedBox(width: 6),
-                          Text('Cash Trip Commission (15%)',
+                          Text(l.cashCommission,
                               style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber.shade800, fontSize: 13)),
                         ]),
                         SizedBox(height: 6),
-                        Text('For cash trips, please send 15% of each fare to admin via InstaPay:',
+                        Text(l.cashCommissionNote,
                             style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
                         SizedBox(height: 6),
                         Row(children: [
@@ -3749,7 +3750,7 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Recent Withdrawal Requests',
+                      Text(l.recentWithdrawals,
                           style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                       SizedBox(height: 10),
                       ...withdrawals.map((w) {
@@ -3792,7 +3793,7 @@ class _DriverEarningsTabState extends State<DriverEarningsTab> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  isPaid ? 'Paid' : 'Pending',
+                                  isPaid ? l.paid : l.pendingStatus,
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
@@ -3859,7 +3860,8 @@ class _EarningsBarChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxVal = daily.fold<double>(0, (m, v) => v > m ? v : m);
-    final days = ['6d', '5d', '4d', '3d', '2d', 'Yest', 'Today'];
+    final l = AppLocalizations.of(context);
+    final days = [l.day6Ago, l.day5Ago, l.day4Ago, l.day3Ago, l.day2Ago, l.yesterday, l.today];
     return Container(
       height: 160,
       padding: EdgeInsets.all(16),
@@ -3945,7 +3947,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Photo updated!'), backgroundColor: Colors.teal),
+          SnackBar(content: Text(AppLocalizations.of(context).photoUpdated), backgroundColor: Colors.teal),
         );
       }
     }
@@ -3961,13 +3963,13 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
           .update({'instapayPhone': phone});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('InstaPay number saved'), backgroundColor: Colors.teal),
+          SnackBar(content: Text(AppLocalizations.of(context).instapayNumberSaved), backgroundColor: Colors.teal),
         );
       }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save. Try again.'), backgroundColor: Colors.red),
+          SnackBar(content: Text(AppLocalizations.of(context).failedToSave), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -3993,7 +3995,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                 children: [
                   Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
                   SizedBox(height: 12),
-                  Text('Could not load profile',
+                  Text(l.couldNotLoadProfile,
                       style: TextStyle(color: Colors.grey.shade600)),
                   SizedBox(height: 16),
                   ElevatedButton(
@@ -4081,7 +4083,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                         children: [
                           Icon(Icons.star, color: Colors.amber, size: 18),
                           SizedBox(width: 4),
-                          Text('${rating.toStringAsFixed(1)} Rating',
+                          Text('${rating.toStringAsFixed(1)} ${l.rating}',
                               style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
                           SizedBox(width: 16),
                           Icon(Icons.circle, color: Colors.green, size: 10),
@@ -4099,7 +4101,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                 SizedBox(height: 20),
                 _buildSection(l.myVehicle, [
                   _profileRow(Icons.directions_boat, l.vehicleType, vehicleType),
-                  _profileRow(Icons.numbers, 'Vehicle ID', vehicleId),
+                  _profileRow(Icons.numbers, l.vehicleId, vehicleId),
                   _profileRow(Icons.route, l.totalRides, '$totalTrips'),
                 ]),
                 SizedBox(height: 16),
@@ -4117,13 +4119,13 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('InstaPay',
+                      Text(l.instapayNumber,
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 15,
                               color: Colors.grey.shade700)),
                       SizedBox(height: 4),
-                      Text('Passengers will send payment to this number',
+                      Text(l.instapayNote,
                           style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                       SizedBox(height: 12),
                       Row(
@@ -4157,7 +4159,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                                     padding: EdgeInsets.symmetric(
                                         horizontal: 16, vertical: 12),
                                   ),
-                                  child: Text('Save',
+                                  child: Text(l.save,
                                       style: TextStyle(color: Colors.white)),
                                 ),
                         ],
@@ -4195,11 +4197,11 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                   ),
                 ),
                 SizedBox(height: 16),
-                _buildSection('Account', [
-                  _actionRow(Icons.person_outline, 'Edit Profile', Colors.indigo, () => _editProfile(context)),
-                  _actionRow(Icons.lock, 'Change Password', Colors.blue, () => _changePassword(context)),
-                  _actionRow(Icons.support_agent, 'Contact Support', Colors.teal, () => _contactSupport(context)),
-                  _actionRow(Icons.logout, 'Logout', Colors.red, () async {
+                _buildSection(l.account, [
+                  _actionRow(Icons.person_outline, l.editProfile, Colors.indigo, () => _editProfile(context)),
+                  _actionRow(Icons.lock, l.changePassword, Colors.blue, () => _changePassword(context)),
+                  _actionRow(Icons.support_agent, l.contactSupport, Colors.teal, () => _contactSupport(context)),
+                  _actionRow(Icons.logout, l.signOut, Colors.red, () async {
                     await DriverAuthService.signOut();
                     if (context.mounted) {
                       Navigator.pushReplacement(
@@ -4219,19 +4221,20 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
   }
 
   void _editProfile(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final nameCtrl = TextEditingController(text: DriverAuthService.currentDriverName);
     final phoneCtrl = TextEditingController(text: DriverAuthService.currentDriverPhone);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Edit Profile'),
+        title: Text(l.editProfile),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: nameCtrl,
               decoration: InputDecoration(
-                labelText: 'Full Name',
+                labelText: l.fullName,
                 prefixIcon: Icon(Icons.person),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               ),
@@ -4241,7 +4244,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
               controller: phoneCtrl,
               keyboardType: TextInputType.phone,
               decoration: InputDecoration(
-                labelText: 'Phone Number',
+                labelText: l.phoneNumber,
                 prefixIcon: Icon(Icons.phone),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               ),
@@ -4251,7 +4254,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
         actions: [
           TextButton(
             onPressed: () { nameCtrl.dispose(); phoneCtrl.dispose(); Navigator.pop(ctx); },
-            child: Text('Cancel'),
+            child: Text(l.cancel),
           ),
           ElevatedButton(
             onPressed: () async {
@@ -4268,7 +4271,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
               if (mounted) setState(() {});
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade700),
-            child: Text('Save', style: TextStyle(color: Colors.white)),
+            child: Text(l.save, style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -4276,6 +4279,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
   }
 
   void _changePassword(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final currentCtrl = TextEditingController();
     final newCtrl = TextEditingController();
     bool obscureCurrent = true;
@@ -4284,7 +4288,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setS) => AlertDialog(
-          title: Text('Change Password'),
+          title: Text(l.changePassword),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -4292,7 +4296,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                 controller: currentCtrl,
                 obscureText: obscureCurrent,
                 decoration: InputDecoration(
-                  labelText: 'Current Password',
+                  labelText: l.currentPassword,
                   prefixIcon: Icon(Icons.lock_outline),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   suffixIcon: IconButton(
@@ -4306,7 +4310,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                 controller: newCtrl,
                 obscureText: obscureNew,
                 decoration: InputDecoration(
-                  labelText: 'New Password (min 6 chars)',
+                  labelText: l.newPasswordLabel,
                   prefixIcon: Icon(Icons.lock),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   suffixIcon: IconButton(
@@ -4320,7 +4324,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
           actions: [
             TextButton(
               onPressed: () { currentCtrl.dispose(); newCtrl.dispose(); Navigator.pop(ctx); },
-              child: Text('Cancel'),
+              child: Text(l.cancel),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -4329,7 +4333,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                 currentCtrl.dispose(); newCtrl.dispose();
                 if (newPass.length < 6) {
                   if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text('Password must be at least 6 characters')));
+                    SnackBar(content: Text(l.passwordMin6)));
                   return;
                 }
                 Navigator.pop(ctx);
@@ -4340,17 +4344,17 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
                     await user.reauthenticateWithCredential(cred);
                     await user.updatePassword(newPass);
                     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Password updated!'), backgroundColor: Colors.green));
+                      SnackBar(content: Text(l.passwordUpdated), backgroundColor: Colors.green));
                   }
                 } on FirebaseAuthException catch (e) {
                   if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text(e.code == 'wrong-password'
-                        ? 'Current password is incorrect' : (e.message ?? 'Failed')),
+                        ? l.wrongCurrentPassword : (e.message ?? l.error)),
                         backgroundColor: Colors.red));
                 }
               },
               style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade700),
-              child: Text('Update', style: TextStyle(color: Colors.white)),
+              child: Text(l.updateBtn, style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
@@ -4359,25 +4363,26 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
   }
 
   void _contactSupport(BuildContext context) {
+    final l = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         title: Row(children: [
           Icon(Icons.support_agent, color: Colors.teal.shade700),
           SizedBox(width: 8),
-          Text('Contact Support'),
+          Text(l.contactSupport),
         ]),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Driver support team', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text(l.driverSupportTeam, style: TextStyle(fontWeight: FontWeight.bold)),
             SizedBox(height: 12),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.email, color: Colors.blue),
               title: Text('support@app.flutour.com'),
-              subtitle: Text('Email support'),
+              subtitle: Text(l.emailSupport),
               onTap: () async {
                 final uri = Uri.parse('mailto:support@app.flutour.com?subject=FluTour Driver Support');
                 if (await canLaunchUrl(uri)) await launchUrl(uri);
@@ -4396,7 +4401,7 @@ class _DriverProfileTabState extends State<DriverProfileTab> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text('Close')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(l.close)),
         ],
       ),
     );
@@ -4506,7 +4511,7 @@ class _TripRequestNotificationScreenState
     if (!mounted) return;
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Request timed out — auto declined')));
+        SnackBar(content: Text(AppLocalizations.of(context).requestTimedOut)));
   }
 
   void _accept() async {
@@ -4536,14 +4541,14 @@ class _TripRequestNotificationScreenState
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to submit offer. Please try again.')));
+          SnackBar(content: Text(AppLocalizations.of(context).failedToSubmitOffer)));
       Navigator.pop(context);
       return;
     }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Offer sent! Waiting for passenger to choose.'),
+        content: Text(AppLocalizations.of(context).offerSentWaiting),
         backgroundColor: Colors.teal.shade700,
       ),
     );
@@ -4564,7 +4569,7 @@ class _TripRequestNotificationScreenState
     }
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Request declined')));
+        SnackBar(content: Text(AppLocalizations.of(context).requestDeclined)));
   }
 
   void _counter() {
@@ -4573,12 +4578,12 @@ class _TripRequestNotificationScreenState
     final ctrl = TextEditingController(text: counterAmount.toStringAsFixed(0));
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Suggest Your Fare'),
+      builder: (ctx) => AlertDialog(
+        title: Text(AppLocalizations.of(context).suggestYourFare),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Enter your fare offer (EGP):', style: TextStyle(color: Colors.grey.shade600)),
+            Text(AppLocalizations.of(context).enterFareOffer, style: TextStyle(color: Colors.grey.shade600)),
             SizedBox(height: 12),
             TextField(
               controller: ctrl,
@@ -4592,14 +4597,14 @@ class _TripRequestNotificationScreenState
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context).cancel)),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
               _submitOffer(counterAmount);
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade700),
-            child: Text('Send Offer', style: TextStyle(color: Colors.white)),
+            child: Text(AppLocalizations.of(ctx).sendOffer, style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -4646,7 +4651,7 @@ class _TripRequestNotificationScreenState
                 ),
               ),
               SizedBox(height: 6),
-              Text(urgent ? 'Expiring soon!' : 'Seconds remaining',
+              Text(urgent ? l.expiringSoon : l.secondsRemaining,
                   style: TextStyle(
                       color: urgent ? Colors.red.shade600 : Colors.grey.shade600,
                       fontSize: 13)),
@@ -4701,7 +4706,7 @@ class _TripRequestNotificationScreenState
                       padding: EdgeInsets.symmetric(vertical: 12),
                       child: Column(
                         children: [
-                          Text('Passenger Offer',
+                          Text(l.passengerOffer,
                               style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
                           SizedBox(height: 4),
                           Text(
@@ -4741,7 +4746,7 @@ class _TripRequestNotificationScreenState
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         minimumSize: Size(0, 52),
                       ),
-                      child: Text('Counter', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: Text(l.counterOffer, style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ),
                   SizedBox(width: 8),
@@ -4788,14 +4793,18 @@ class DriverActiveTripScreen extends StatefulWidget {
 class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
   int _step = 0;
   int _passengerRating = 0; // 0 = not rated yet
-  final _steps = ['Navigate to Passenger', 'Arrived at Pickup', 'Trip Started', 'Trip Completed'];
+  List<String> _stepsLabels(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return [l.navigateToPassenger, l.arrivedAtPassenger, l.tripInProgress, l.tripCompletedLabel];
+  }
   final _stepColors = [Colors.blue, Colors.orange, Colors.teal, Colors.green];
 
   void _advance() {
-    if (_step < _steps.length - 1) {
+    final labels = _stepsLabels(context);
+    if (_step < labels.length - 1) {
       setState(() => _step++);
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_steps[_step])));
+          SnackBar(content: Text(_stepsLabels(context)[_step])));
     } else {
       _showComplete();
     }
@@ -4819,10 +4828,10 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
           children: [
             Text(l.earningsForTrip, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
             SizedBox(height: 8),
-            Text('${fare.toStringAsFixed(0)} EGP (fare)',
+            Text('${fare.toStringAsFixed(0)} ${l.egpFare}',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.teal.shade700)),
             SizedBox(height: 4),
-            Text('${(fare * 0.8).toStringAsFixed(0)} EGP (after 20% commission)',
+            Text('${(fare * 0.8).toStringAsFixed(0)} ${l.egpAfterCommission}',
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
           ],
         ),
@@ -4893,7 +4902,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 controller: commentCtrl,
                 maxLines: 2,
                 decoration: InputDecoration(
-                  hintText: 'Leave a comment (optional)',
+                  hintText: AppLocalizations.of(ctx).leaveComment,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
@@ -4907,7 +4916,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 Navigator.pop(ctx);
                 _goToDashboard();
               },
-              child: Text('Skip', style: TextStyle(color: Colors.grey)),
+              child: Text(AppLocalizations.of(ctx).skip, style: TextStyle(color: Colors.grey)),
             ),
             ElevatedButton(
               onPressed: tempRating == 0
@@ -4946,7 +4955,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
     final req = widget.request;
     return Scaffold(
       appBar: AppBar(
-        title: Text('Active Trip'),
+        title: Text(AppLocalizations.of(context).activeRide),
         centerTitle: true,
         automaticallyImplyLeading: false,
         backgroundColor: Colors.teal.shade700,
@@ -5027,18 +5036,21 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                 ]),
                 SizedBox(height: 16),
                 // Step indicator
-                Row(children: List.generate(_steps.length, (i) => Expanded(
-                  child: Container(
-                    height: 4,
-                    margin: EdgeInsets.only(right: i < _steps.length - 1 ? 4 : 0),
-                    decoration: BoxDecoration(
-                      color: i <= _step ? _stepColors[_step] : Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(2),
+                Builder(builder: (ctx) {
+                  final labels = _stepsLabels(ctx);
+                  return Row(children: List.generate(labels.length, (i) => Expanded(
+                    child: Container(
+                      height: 4,
+                      margin: EdgeInsets.only(right: i < labels.length - 1 ? 4 : 0),
+                      decoration: BoxDecoration(
+                        color: i <= _step ? _stepColors[_step] : Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
-                  ),
-                ))),
+                  )));
+                }),
                 SizedBox(height: 10),
-                Text(_steps[_step],
+                Text(_stepsLabels(context)[_step],
                     style: TextStyle(fontWeight: FontWeight.bold,
                         fontSize: 14, color: _stepColors[_step])),
                 SizedBox(height: 14),
@@ -5052,7 +5064,7 @@ class _DriverActiveTripScreenState extends State<DriverActiveTripScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
                     child: Text(
-                      _step < _steps.length - 1 ? _steps[_step + 1] : 'Complete Trip',
+                      _step < _stepsLabels(context).length - 1 ? _stepsLabels(context)[_step + 1] : AppLocalizations.of(context).completeTrip,
                       style: TextStyle(color: Colors.white,
                           fontSize: 16, fontWeight: FontWeight.bold),
                     ),
