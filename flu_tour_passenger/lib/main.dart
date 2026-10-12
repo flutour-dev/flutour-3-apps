@@ -480,17 +480,19 @@ class _SplashScreenState extends State<SplashScreen>
     _controller.repeat(reverse: true);
     Future.delayed(Duration(seconds: 2), () async {
       if (!mounted) return;
-      // authStateChanges().first waits for Firebase Auth to fully restore
-      // the persisted session from Keychain before deciding which screen to show.
-      final user = await FirebaseAuth.instance.authStateChanges().first;
-      if (!mounted) return;
-      if (user != null) {
-        Navigator.pushReplacement(
-            context, MaterialPageRoute(builder: (_) => PassengerHomeScreen()));
-      } else {
-        Navigator.pushReplacement(
-            context, MaterialPageRoute(builder: (_) => LoginScreen()));
+      // currentUser is set synchronously on mobile after Firebase.initializeApp().
+      // Fall back to authStateChanges().first only if currentUser is null, to avoid
+      // the race where the stream emits null before the cached session is loaded.
+      if (FirebaseAuth.instance.currentUser == null) {
+        await FirebaseAuth.instance.authStateChanges().first;
       }
+      if (!mounted) return;
+      final user = FirebaseAuth.instance.currentUser;
+      Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+              builder: (_) =>
+                  user != null ? PassengerHomeScreen() : LoginScreen()));
     });
   }
 
@@ -561,23 +563,40 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ),
               Padding(
-                padding: EdgeInsets.fromLTRB(32, 0, 32, 36),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pushReplacement(
-                        context, MaterialPageRoute(builder: (_) => LoginScreen())),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                padding: EdgeInsets.fromLTRB(32, 0, 32, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pushReplacement(
+                            context, MaterialPageRoute(builder: (_) => PassengerHomeScreen())),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        child: Text('Get Started',
+                            style: TextStyle(
+                                color: Colors.blue.shade900,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold)),
+                      ),
                     ),
-                    child: Text('Get Started',
-                        style: TextStyle(
-                            color: Colors.blue.shade900,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold)),
-                  ),
+                    SizedBox(height: 10),
+                    TextButton(
+                      onPressed: () => Navigator.pushReplacement(
+                          context, MaterialPageRoute(builder: (_) => LoginScreen())),
+                      child: Text('Sign In / Create Account',
+                          style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
+                              decoration: TextDecoration.underline,
+                              decorationColor: Colors.white70)),
+                    ),
+                    SizedBox(height: 10),
+                  ],
                 ),
               ),
             ],
@@ -831,6 +850,21 @@ class _LoginScreenState extends State<LoginScreen> {
                           MaterialPageRoute(builder: (_) => ForgotPasswordScreen())),
                       child: Text('Forgot password?',
                           style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.w500)),
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(builder: (_) => PassengerHomeScreen(guestMode: true)),
+                          (_) => false),
+                      child: Text('Browse without an account',
+                          style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                              decoration: TextDecoration.underline,
+                              decorationColor: Colors.grey.shade600)),
                     ),
                   ),
                 ],
@@ -1341,6 +1375,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
 // ===== 6. PASSENGER HOME SCREEN (Shell) =====
 class PassengerHomeScreen extends StatefulWidget {
+  final bool guestMode;
+  const PassengerHomeScreen({this.guestMode = false});
   @override
   _PassengerHomeScreenState createState() => _PassengerHomeScreenState();
 }
@@ -1355,12 +1391,19 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   @override
   void initState() {
     super.initState();
-    _tabs = [
-      HomeTab(),
-      BookRideTab(key: _bookRideKey),
-      MyTripsTab(),
-      ProfileTab(),
-    ];
+    if (widget.guestMode) {
+      _tabs = [
+        HomeTab(),
+        BookRideTab(key: _bookRideKey),
+      ];
+    } else {
+      _tabs = [
+        HomeTab(),
+        BookRideTab(key: _bookRideKey),
+        MyTripsTab(),
+        ProfileTab(),
+      ];
+    }
     // Listen for trip-status FCM notifications while app is in foreground
     _fcmSub = FirebaseMessaging.onMessage.listen((message) {
       if (!mounted) return;
@@ -1393,12 +1436,17 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         selectedItemColor: Colors.blue.shade700,
         unselectedItemColor: Colors.grey,
         selectedLabelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-        items: [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: AppLocalizations.of(context).tabHome),
-          BottomNavigationBarItem(icon: Icon(Icons.sailing), label: AppLocalizations.of(context).tabBook),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: AppLocalizations.of(context).tabTrips),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: AppLocalizations.of(context).tabProfile),
-        ],
+        items: widget.guestMode
+            ? [
+                BottomNavigationBarItem(icon: Icon(Icons.home), label: AppLocalizations.of(context).tabHome),
+                BottomNavigationBarItem(icon: Icon(Icons.sailing), label: AppLocalizations.of(context).tabBook),
+              ]
+            : [
+                BottomNavigationBarItem(icon: Icon(Icons.home), label: AppLocalizations.of(context).tabHome),
+                BottomNavigationBarItem(icon: Icon(Icons.sailing), label: AppLocalizations.of(context).tabBook),
+                BottomNavigationBarItem(icon: Icon(Icons.history), label: AppLocalizations.of(context).tabTrips),
+                BottomNavigationBarItem(icon: Icon(Icons.person), label: AppLocalizations.of(context).tabProfile),
+              ],
       ),
     );
   }
@@ -1467,7 +1515,9 @@ class HomeTab extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Hello, ${AuthService.currentUserName.split(' ').first}!',
+                        Text(AuthService.currentUserName.isNotEmpty
+                                ? 'Hello, ${AuthService.currentUserName.split(' ').first}!'
+                                : 'Hello, Guest!',
                             style: TextStyle(color: Colors.white70, fontSize: 14)),
                         SizedBox(height: 4),
                         Text('Where to today?',
@@ -2242,6 +2292,32 @@ class _BookRideTabState extends State<BookRideTab> {
                                   _dropoffCtrl.text.trim().isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                                     content: Text(AppLocalizations.of(context).enterPickupDropoff)));
+                                return;
+                              }
+                              // Booking a ride is account-based — require sign-in
+                              if (!AuthService.isLoggedIn) {
+                                final l = AppLocalizations.of(context);
+                                showDialog(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: Text(l.signIn),
+                                    content: Text('Please sign in to book a ride.'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx),
+                                        child: Text('Cancel'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () {
+                                          Navigator.pop(ctx);
+                                          Navigator.push(context,
+                                              MaterialPageRoute(builder: (_) => LoginScreen()));
+                                        },
+                                        child: Text(l.signIn),
+                                      ),
+                                    ],
+                                  ),
+                                );
                                 return;
                               }
                               final homeState = context
@@ -3292,6 +3368,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
               height: 54,
               child: ElevatedButton(
                 onPressed: () {
+                  if (!AuthService.isLoggedIn) {
+                    Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => LoginScreen()));
+                    return;
+                  }
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -4254,9 +4335,18 @@ class _BookingConfirmedScreenState extends State<BookingConfirmedScreen>
       return;
     }
     int step = _rideStep;
-    if (status == 'accepted') step = 1;
-    if (status == 'arrived') step = 2;
-    if (status == 'in_progress') step = 3;
+    if (status == 'accepted' && _rideStep < 1) {
+      step = 1;
+      SoundService.playDriverAccepted();
+    }
+    if (status == 'arrived' && _rideStep < 2) {
+      step = 2;
+      SoundService.playDriverArrived();
+    }
+    if (status == 'in_progress' && _rideStep < 3) {
+      step = 3;
+      SoundService.playTripStarted();
+    }
     setState(() => _rideStep = step);
   }
 

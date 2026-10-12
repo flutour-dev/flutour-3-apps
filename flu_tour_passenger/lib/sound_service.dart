@@ -86,29 +86,38 @@ class SoundService {
     return file.path;
   }
 
-  /// Double chime (A5 → E5) — play when a driver submits a fare offer.
-  static Future<void> playDriverOffer() async {
-    try {
-      final player = await _getPlayer();
-      await player.stop();
-      final p1 = await _writeTempWav(
-          _buildChime(frequency: 880, durationSec: 0.9, decayTau: 0.32), 'offer1');
-      await player.play(DeviceFileSource(p1));
-      await Future.delayed(const Duration(milliseconds: 420));
-      final p2 = await _writeTempWav(
-          _buildChime(frequency: 659, durationSec: 1.1, decayTau: 0.45), 'offer2');
-      await player.play(DeviceFileSource(p2));
-    } catch (_) {}
+  static Future<void> _playDing() async {
+    final player = await _getPlayer();
+    await player.stop();
+    await player.play(AssetSource('sounds/arrival_ding.mp3'));
   }
 
-  /// Single soft chime (B4) — play when driver sends a counter-offer.
+  /// Play when a driver submits a fare offer.
+  static Future<void> playDriverOffer() async {
+    try { await _playDing(); } catch (_) {}
+  }
+
+  /// Play when driver sends a counter-offer.
   static Future<void> playCounterOffer() async {
+    try { await _playDing(); } catch (_) {}
+  }
+
+  /// Play when driver accepts the passenger's offer.
+  static Future<void> playDriverAccepted() async {
+    try { await _playDing(); } catch (_) {}
+  }
+
+  /// Play when trip starts (driver picks up passenger).
+  static Future<void> playTripStarted() async {
+    try { await _playDing(); } catch (_) {}
+  }
+
+  /// Play when driver arrives at passenger's pickup location.
+  static Future<void> playDriverArrived() async {
     try {
       final player = await _getPlayer();
       await player.stop();
-      final path = await _writeTempWav(
-          _buildChime(frequency: 494, durationSec: 1.0, decayTau: 0.40), 'counter');
-      await player.play(DeviceFileSource(path));
+      await player.play(AssetSource('sounds/arrived_pickup.mp3'));
     } catch (_) {}
   }
 }

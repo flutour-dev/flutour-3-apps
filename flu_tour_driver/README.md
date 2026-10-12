@@ -1,67 +1,61 @@
-# flutour
+# FluTour Driver App
 
-A Flutter-based passenger booking experience for Hantour and Felucca river rides.
+A Flutter app for drivers managing Hantour and Felucca river ride requests in Luxor, Egypt.
 
-## UX Overview
+## Current Version
 
-`flutour` is designed as a lightweight ride booking app with a passenger-first flow, OpenStreetMap basemap support, and mobile payment options.
-
-Key UX screens:
-
-1. **Passenger Selection**
-   - Choose the passenger flow to access river ride booking.
-   - The landing screen highlights `Hantour or Felucca` ride options.
-
-2. **Ride Picker / Map Screen**
-   - Displays a searchable ride selection interface.
-   - Uses `flutter_map` with OpenStreetMap tiles to show the river route without requiring a Google Maps API key.
-   - Includes featured ride cards and recommended Felucca/Hantour options.
-
-3. **Ride Details**
-   - Select a vehicle or boat option and review details before checkout.
-   - The UI is built to reflect a booking experience for passenger-only river transport.
-
-4. **Payment Selection**
-   - Choose between:
-     - `Cash`
-     - `Credit Card`
-     - `Mobile Wallet`
-   - Each option routes to its own payment screen.
-
-5. **Mobile Wallet Payment**
-   - Provides a wallet provider dropdown.
-   - Includes a mobile number input field for wallet-based confirmation.
-   - Supports a payment confirmation flow suited for mobile wallet use cases.
-
-6. **Confirmation**
-   - Shows a final confirmation screen after payment.
-   - Confirms the booking and selected payment method.
+**1.0.2+9** · October 12, 2026
 
 ## Features
 
-- Passenger-only booking flow
-- Hantour and Felucca ride terminology throughout the UX
-- OpenStreetMap-based map view for no-key map rendering
-- Multiple payment methods with wallet integration fields
-- Simple, app-style booking and confirmation experience
+- **Auto-online** — driver status set to online automatically on login and after each trip
+- Real-time trip request notifications with custom sounds
+- Live GPS location map on the dashboard
+- Offer / counter-offer negotiation with passengers
+- Trip step tracking: en route → arrived → in progress → completed
+- Earnings summary and trip history
+- Firebase Auth session persistence (no re-login on app reopen)
+- Sign in with Google and Sign in with Apple
+- Account deletion support
 
-## Getting Started
+## Notification Sounds
 
-From the `flu_tour_apk` directory:
+| Event | Sound |
+|-------|-------|
+| New trip request from passenger | `arrival_ding.mp3` |
+| Passenger accepted driver's offer | `arrival_ding.mp3` |
+| Driver arrived at pickup location | `arrived_pickup.mp3` (calendar alert) |
 
-```bash
-../bin/flutter pub get
-../bin/flutter build apk --debug
+Sounds are deduplicated — the startup sound guard (`_soundReady` flag, 3 s delay) prevents false triggers on app open.
+
+## Driver Status Flow
+
+```
+App open (logged in)
+  └─ Dashboard loads → auto setStatus('online')
+
+Trip completed
+  └─ _nextStep() finalises trip → auto setStatus('online')
 ```
 
-The debug APK is generated at:
+## Build
 
 ```bash
-build/app/outputs/flutter-apk/app-debug.apk
+flutter pub get
+flutter build apk --release        # APK for direct install
+flutter build appbundle --release  # AAB for Google Play
 ```
 
-## Notes
+Release artifacts:
+- `flutour-driver-release.apk`
+- `flutour-driver-release.aab`
 
-- The app package is renamed to `flutour`.
-- Android and iOS display names were updated to `flutour`.
-- The UX is intended for a lightweight river ride booking flow with quick passenger access and payment selection.
+## Tech Stack
+
+- Flutter 3 / Dart
+- Firebase Auth, Firestore, Realtime Database, Cloud Messaging
+- `flutter_map` + OpenStreetMap with live `MapController`
+- `audioplayers` for notification sounds
+- `geolocator` for GPS broadcasting
+- `google_sign_in`, `sign_in_with_apple`
+- `provider` for state management

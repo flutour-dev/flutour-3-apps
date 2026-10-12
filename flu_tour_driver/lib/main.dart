@@ -541,9 +541,11 @@ class _DriverSplashScreenState extends State<DriverSplashScreen>
 
     Future.delayed(Duration(seconds: 2), () async {
       if (!mounted) return;
-      // authStateChanges().first waits for Firebase Auth to fully restore
-      // the persisted session from Keychain before deciding which screen to show.
-      final user = await FirebaseAuth.instance.authStateChanges().first;
+      // currentUser is set synchronously on mobile after Firebase.initializeApp().
+      // Fall back to authStateChanges().first only if currentUser is null, to avoid
+      // the race where the stream emits null before the cached session is loaded.
+      var user = FirebaseAuth.instance.currentUser;
+      user ??= await FirebaseAuth.instance.authStateChanges().first;
       if (!mounted) return;
       if (user != null) {
         Navigator.pushReplacement(
@@ -1790,12 +1792,16 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
   bool _isOnline = false;
   bool _togglingOnline = false;
   final LatLng _luxor = LatLng(25.6872, 32.6396);
+  late LatLng _currentPosition;
+  final MapController _mapController = MapController();
+  Timer? _locationTimer;
   StreamSubscription<RemoteMessage>? _fcmSub;
   StreamSubscription<QuerySnapshot>? _acceptedTripSub;
   StreamSubscription<QuerySnapshot>? _soundSub; // moved here so it's always active
   final Set<String> _soundKnownIds = {};
   bool _navigatedToActiveRide = false;
   final Set<String> _handledTripIds = {}; // prevents re-navigating to same trip
+  bool _soundReady = false; // prevents sound on app open / session restore
   late Future<Map<String, dynamic>> _statsFuture;
 
   Future<Map<String, dynamic>> _loadStats() async {
@@ -1851,7 +1857,19 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
   @override
   void initState() {
     super.initState();
+    _currentPosition = _luxor; // fallback until GPS is ready
     _statsFuture = _loadStats();
+    // Allow trip-request sounds only after 3 s — prevents sound on app open/restore
+    Future.delayed(const Duration(seconds: 3), () { if (mounted) _soundReady = true; });
+    // Refresh the map marker every 3 s from the broadcast service's cached position
+    _locationTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      final pos = DriverLocationService.lastPosition;
+      if (pos != null && mounted) {
+        final next = LatLng(pos.latitude, pos.longitude);
+        setState(() => _currentPosition = next);
+        try { _mapController.move(next, 14.0); } catch (_) {}
+      }
+    });
     // Firestore-based sound: plays whenever a new trip appears, regardless of active tab
     _soundSub = FirebaseFirestore.instance
         .collection('trips')
@@ -1860,17 +1878,16 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
         .listen((snap) {
       final incoming = snap.docs.map((d) => d.id).toSet();
       final newIds = incoming.difference(_soundKnownIds);
-      if (_soundKnownIds.isNotEmpty && newIds.isNotEmpty) {
+      if (_soundReady && _soundKnownIds.isNotEmpty && newIds.isNotEmpty) {
         SoundService.playTripRequest();
       }
       _soundKnownIds.addAll(incoming);
     });
-    // FCM foreground sound + SnackBar
+    // FCM foreground SnackBar only — sound is handled by the Firestore stream above
     _fcmSub = FirebaseMessaging.onMessage.listen((message) {
       if (!mounted) return;
       final type = message.data['type'] ?? '';
       if (type == 'trip_request' || message.notification != null) {
-        SoundService.playTripRequest();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message.notification?.body ?? 'New trip request!'),
@@ -1924,10 +1941,46 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
         });
       });
     }
+    // Auto go-online when the dashboard loads (app open or return from trip)
+    WidgetsBinding.instance.addPostFrameCallback((_) => _goOnline());
+  }
+
+  Future<void> _goOnline() async {
+    if (!mounted) return;
+    setState(() {
+      _isOnline = true;
+      _togglingOnline = false;
+    });
+    try {
+      await DriverDatabaseService.instance.setOnlineStatus(
+          DriverAuthService.currentDriverId, true);
+    } catch (_) {}
+    final result = await DriverLocationService.getCurrentLocation();
+    if (!mounted) return;
+    if (result.isSuccess) {
+      final pos = LatLng(result.position!.latitude, result.position!.longitude);
+      setState(() => _currentPosition = pos);
+      try { _mapController.move(pos, 14.0); } catch (_) {}
+      DriverLocationService.startBroadcasting(
+          DriverAuthService.currentDriverId,
+          driverName: DriverAuthService.currentDriverName);
+      try {
+        await DriverDatabaseService.instance.setOnlineStatus(
+          DriverAuthService.currentDriverId, true,
+          latitude: result.position!.latitude,
+          longitude: result.position!.longitude,
+        );
+      } catch (_) {}
+      final hasBg = await DriverLocationService.hasBackgroundPermission();
+      if (!hasBg && mounted) {
+        DriverLocationService.showBackgroundPermissionDialog(context);
+      }
+    }
   }
 
   @override
   void dispose() {
+    _locationTimer?.cancel();
     _fcmSub?.cancel();
     _acceptedTripSub?.cancel();
     _soundSub?.cancel();
@@ -1979,35 +2032,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                         DriverAuthService.currentDriverId, false);
                   } catch (_) {}
                 } else {
-                  // Go online immediately — don't block on GPS
-                  setState(() {
-                    _isOnline = true;
-                    _togglingOnline = false;
-                  });
-                  try {
-                    await DriverDatabaseService.instance.setOnlineStatus(
-                        DriverAuthService.currentDriverId, true);
-                  } catch (_) {}
-                  // Try to start GPS broadcasting in the background (optional)
-                  final result = await DriverLocationService.getCurrentLocation();
-                  if (!mounted) return;
-                  if (result.isSuccess) {
-                    DriverLocationService.startBroadcasting(
-                        DriverAuthService.currentDriverId,
-                        driverName: DriverAuthService.currentDriverName);
-                    try {
-                      await DriverDatabaseService.instance.setOnlineStatus(
-                        DriverAuthService.currentDriverId, true,
-                        latitude: result.position!.latitude,
-                        longitude: result.position!.longitude,
-                      );
-                    } catch (_) {}
-                    final hasBg = await DriverLocationService.hasBackgroundPermission();
-                    if (!hasBg && mounted) {
-                      DriverLocationService.showBackgroundPermissionDialog(context);
-                    }
-                  }
-                  // GPS failure: driver stays online, just no location broadcasting
+                  await _goOnline();
                 }
               },
               child: AnimatedContainer(
@@ -2139,8 +2164,9 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(16),
                       child: FlutterMap(
+                        mapController: _mapController,
                         options: MapOptions(
-                          initialCenter: _luxor,
+                          initialCenter: _currentPosition,
                           initialZoom: 14.0,
                         ),
                         children: [
@@ -2153,7 +2179,7 @@ class _DriverDashboardTabState extends State<DriverDashboardTab> {
                               Marker(
                                 width: 44,
                                 height: 44,
-                                point: _luxor,
+                                point: _currentPosition,
                                 child: Container(
                                   decoration: BoxDecoration(
                                     color: Colors.teal.shade700,
@@ -2932,6 +2958,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
         if (tripId.isNotEmpty) {
           await DriverDatabaseService.instance.arriveTrip(tripId);
         }
+        SoundService.playArrivedAtPickup();
         setState(() => _step = 1);
         _fetchAndSetRoute();
       } else if (_step == 1) {
@@ -4741,7 +4768,6 @@ class _TripRequestNotificationScreenState
   @override
   void initState() {
     super.initState();
-    SoundService.playTripRequest(); // alert driver a new request just arrived
     _countdown = Timer.periodic(Duration(seconds: 1), (t) {
       if (!mounted) { t.cancel(); return; }
       if (_seconds <= 1) {

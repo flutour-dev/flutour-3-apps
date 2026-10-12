@@ -89,37 +89,28 @@ class SoundService {
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
-  /// Double chime (E5 → A5) — play when a NEW trip request arrives.
-  static Future<void> playTripRequest() async {
-    try {
-      final player = await _getPlayer();
-      await player.stop();
-      final path = await _writeTempWav(
-          _buildChime(frequency: 659, durationSec: 0.9, decayTau: 0.30), 'trip1');
-      await player.play(DeviceFileSource(path));
-      await Future.delayed(const Duration(milliseconds: 420));
-      final path2 = await _writeTempWav(
-          _buildChime(frequency: 880, durationSec: 1.1, decayTau: 0.45), 'trip2');
-      await player.play(DeviceFileSource(path2));
-    } catch (_) {}
+  static Future<void> _playDing() async {
+    final player = await _getPlayer();
+    await player.stop();
+    await player.play(AssetSource('sounds/arrival_ding.mp3'));
   }
 
-  /// Triple rising chime (C5 → E5 → A5) — play when passenger accepts the offer.
+  /// Play ONLY when a new trip request arrives.
+  static Future<void> playTripRequest() async {
+    try { await _playDing(); } catch (_) {}
+  }
+
+  /// Play ONLY when passenger accepts the offer.
   static Future<void> playOfferAccepted() async {
+    try { await _playDing(); } catch (_) {}
+  }
+
+  /// Play ONLY when driver arrives at passenger location.
+  static Future<void> playArrivedAtPickup() async {
     try {
       final player = await _getPlayer();
       await player.stop();
-      final p1 = await _writeTempWav(
-          _buildChime(frequency: 523, durationSec: 0.7, decayTau: 0.25), 'acc1');
-      await player.play(DeviceFileSource(p1));
-      await Future.delayed(const Duration(milliseconds: 320));
-      final p2 = await _writeTempWav(
-          _buildChime(frequency: 659, durationSec: 0.7, decayTau: 0.28), 'acc2');
-      await player.play(DeviceFileSource(p2));
-      await Future.delayed(const Duration(milliseconds: 320));
-      final p3 = await _writeTempWav(
-          _buildChime(frequency: 880, durationSec: 1.0, decayTau: 0.45), 'acc3');
-      await player.play(DeviceFileSource(p3));
+      await player.play(AssetSource('sounds/arrived_pickup.mp3'));
     } catch (_) {}
   }
 }

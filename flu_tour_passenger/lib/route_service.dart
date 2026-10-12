@@ -65,26 +65,57 @@ class GeoSuggestion {
 }
 
 class GeocodingService {
+  // Luxor-area viewbox (west, south, east, north) — biases results toward Luxor
+  // without hard-restricting to it, so nearby Aswan/Qena queries still work.
+  static const String _luxorViewbox = '32.50,25.55,32.80,25.85';
+
   static Future<List<GeoSuggestion>> searchEgypt(String query) async {
     final q = query.trim();
     if (q.length < 2) return [];
     try {
+      // First pass: Egypt-only, biased toward Luxor viewbox
       final url = Uri.parse(
         'https://nominatim.openstreetmap.org/search'
         '?q=${Uri.encodeComponent(q)}'
         '&format=json'
-        '&limit=6',
+        '&limit=10'
+        '&countrycodes=eg'
+        '&viewbox=$_luxorViewbox'
+        '&bounded=0',
       );
       final res = await http.get(url, headers: {
-        'Accept-Language': 'en',
+        'Accept-Language': 'ar,en',
         'User-Agent': 'FluTour/1.0 flutour.dev@gmail.com',
       }).timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return [];
       final list = jsonDecode(res.body) as List;
-      return list.map((item) {
+      if (list.isNotEmpty) {
+        return list.map((item) {
+          final lat = double.parse(item['lat'] as String);
+          final lon = double.parse(item['lon'] as String);
+          final parts = (item['display_name'] as String).split(', ');
+          final name = parts.take(3).join(', ');
+          return GeoSuggestion(name: name, location: LatLng(lat, lon));
+        }).toList();
+      }
+      // Fallback: retry without country restriction in case of rare place names
+      final fallbackUrl = Uri.parse(
+        'https://nominatim.openstreetmap.org/search'
+        '?q=${Uri.encodeComponent(q)}'
+        '&format=json'
+        '&limit=10'
+        '&viewbox=$_luxorViewbox'
+        '&bounded=0',
+      );
+      final fallbackRes = await http.get(fallbackUrl, headers: {
+        'Accept-Language': 'ar,en',
+        'User-Agent': 'FluTour/1.0 flutour.dev@gmail.com',
+      }).timeout(const Duration(seconds: 8));
+      if (fallbackRes.statusCode != 200) return [];
+      final fallbackList = jsonDecode(fallbackRes.body) as List;
+      return fallbackList.map((item) {
         final lat = double.parse(item['lat'] as String);
         final lon = double.parse(item['lon'] as String);
-        // Trim to first 3 comma-parts for a readable short name
         final parts = (item['display_name'] as String).split(', ');
         final name = parts.take(3).join(', ');
         return GeoSuggestion(name: name, location: LatLng(lat, lon));
