@@ -6,6 +6,15 @@ A Flutter ride-booking app for Hantour and Felucca river rides in Luxor, Egypt.
 
 **1.0.2+10** · October 12, 2026
 
+## Store Status
+
+| Platform | Status |
+|----------|--------|
+| Google Play | Live ✓ |
+| App Store (iOS) | Pending — Apple Developer account migrating from Individual to Organization |
+
+> **Apple account note:** The account is currently in migration from an Individual to an Organization account. This migration must complete before either app (Passenger or Driver) can be submitted to the App Store for production.
+
 ## Features
 
 - **Guest mode** — browse rides and see fare estimates without an account

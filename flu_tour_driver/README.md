@@ -6,6 +6,15 @@ A Flutter app for drivers managing Hantour and Felucca river ride requests in Lu
 
 **1.0.2+9** · October 12, 2026
 
+## Store Status
+
+| Platform | Status |
+|----------|--------|
+| Google Play | Not live — requires more testing before public release |
+| App Store (iOS) | Pending — Apple Developer account migrating from Individual to Organization |
+
+> **Apple account note:** The account is currently in migration from an Individual to an Organization account. This migration must complete before either app (Passenger or Driver) can be submitted to the App Store for production.
+
 ## Features
 
 - **Auto-online** — driver status set to online automatically on login and after each trip
